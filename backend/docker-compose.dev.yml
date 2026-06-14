@@ -1,0 +1,49 @@
+services:
+  database:
+    image: postgres:17
+    container_name: cinematch-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: cinematch
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d cinematch"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    env_file:
+      - ./env/.env.dev
+    networks:
+      - cinematch-network
+  
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: cinematch-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/app
+      - api_node_modules:/app/node_modules
+    depends_on:
+      database:
+        condition: service_healthy
+    env_file:
+      - ./env/.env.dev
+    networks:
+      - cinematch-network
+
+volumes:
+  db_data:
+  api_node_modules:
+
+networks:
+  cinematch-network:
+    driver: bridge
+    
