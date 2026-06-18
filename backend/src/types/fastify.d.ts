@@ -1,6 +1,5 @@
-// src/@types/fastify.d.ts
-import type { db } from "@/infrastructure/database/client";
-import type { pool } from "@/infrastructure/database/client";
+import "fastify";
+import type { db, pool } from "@/infra/database/client";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -22,3 +21,5 @@ declare module "fastify" {
     };
   }
 }
+
+export {};

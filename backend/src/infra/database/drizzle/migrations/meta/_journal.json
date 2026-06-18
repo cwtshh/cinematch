@@ -8,6 +8,20 @@
       "when": 1781401406445,
       "tag": "0000_add_movie_and_users_table",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781743405503,
+      "tag": "0001_add_onboard_column_to_user_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781744600657,
+      "tag": "0002_add_preferences_tables",
+      "breakpoints": true
     }
   ]
 }

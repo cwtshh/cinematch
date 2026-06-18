@@ -7,16 +7,23 @@ import * as authSchema from "@/infra/database/drizzle/schema/auth-schema";
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
+    schema: authSchema,
   }),
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
-  trustedOrigins: [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://localhost:3333",
-  ],
+  trustedOrigins: env.ALLOWED_ORIGINS,
   emailAndPassword: {
     enabled: true,
+  },
+  user: {
+    additionalFields: {
+      hasCompletedOnboarding: {
+        type: "boolean",
+        required: true,
+        defaultValue: false,
+        input: false,
+      },
+    },
   },
   schema: authSchema,
 });

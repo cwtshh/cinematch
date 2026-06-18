@@ -10,7 +10,7 @@ export async function requireAuth(
     headers: fromNodeHeaders(request.headers),
   });
 
-  if (!session?.user) {
+  if (!session?.user || !session?.session) {
     return reply.status(401).send({
       message: "Unauthorized",
     });
