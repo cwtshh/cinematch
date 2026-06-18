@@ -1,5 +1,4 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-
 import { auth } from "@/infra/auth/auth";
 import { toBetterAuthRequest } from "../utils/to-better-auth-request";
 
@@ -16,13 +15,6 @@ export async function handleAuthRequest(
     reply.header(key, value);
   });
 
-  const contentType = response.headers.get("content-type") ?? "";
-
-  if (contentType.includes("application/json")) {
-    const json = await response.json();
-    return reply.send(json);
-  }
-
-  const text = await response.text();
-  return reply.send(text || null);
+  const body = response.body ? await response.text() : null;
+  return reply.send(body);
 }

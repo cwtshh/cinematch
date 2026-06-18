@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import { databasePlugin } from "@/infra/http/database";
 import { appRoutes } from "@/router/routes";
+import { env } from "./env";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -13,7 +14,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(cors, {
-    origin: "*",
+    origin: env.ALLOWED_ORIGINS,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   });

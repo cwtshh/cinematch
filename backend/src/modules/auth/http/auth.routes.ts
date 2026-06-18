@@ -1,10 +1,37 @@
-import type { FastifyPluginAsync } from "fastify";
-import { handleAuthRequest } from "./auth.handler";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import { auth } from "@/infra/auth/auth";
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
   app.route({
-    method: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    url: "/*",
-    handler: handleAuthRequest,
+    method: ["GET", "POST"],
+    url: "/auth/*",
+    async handler(request: FastifyRequest, reply: FastifyReply) {
+      const url = new URL(request.url, `http://${request.headers.host}`);
+
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(request.headers)) {
+        if (value) headers.append(key, String(value));
+      }
+
+      const req = new Request(url.toString(), {
+        method: request.method,
+        headers,
+        body:
+          request.method !== "GET" && request.body
+            ? JSON.stringify(request.body)
+            : undefined,
+      });
+
+      const response = await auth.handler(req);
+
+      reply.status(response.status);
+
+      response.headers.forEach((value, key) => {
+        reply.header(key, value);
+      });
+
+      const body = await response.text();
+      reply.send(body || null);
+    },
   });
 };

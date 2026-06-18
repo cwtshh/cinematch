@@ -1,12 +1,12 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "radix-rhea",
+  "style": "radix-nova",
   "rsc": false,
   "tsx": true,
   "tailwind": {
     "config": "",
-    "css": "src/app/styles/index.css",
-    "baseColor": "neutral",
+    "css": "src/index.css",
+    "baseColor": "zinc",
     "cssVariables": true,
     "prefix": ""
   },

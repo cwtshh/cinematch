@@ -12,6 +12,12 @@ const envSchema = z.object({
   BETTER_AUTH_URL: z.url(),
   TMDB_API_READ_KEY: z.string().min(1),
   TMDB_API_TOKEN: z.string().min(1),
+  ALLOWED_ORIGINS: z
+    .string()
+    .default(
+      "http://localhost:3000,http://localhost:5173,http://localhost:3333",
+    )
+    .transform((str) => str.split(",").map((s) => s.trim())),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

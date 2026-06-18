@@ -1,4 +1,3 @@
-// src/infrastructure/database/drizzle/schema/auth-schema.ts
 import {
   boolean,
   integer,
