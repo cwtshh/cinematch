@@ -4,26 +4,25 @@ import { Register } from "../features/auth/routes/Register";
 import { AppLayout } from "../layout/AppLayout";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { AppGate } from "./gates/AppGate";
-import { OnboardingGate } from "./gates/OnBoardingGate";
 import { PreferencesOnboardingPage } from "../features/on-board/routes/PreferencesOnboarding";
 import { PublicGate } from "./gates/PublicGate";
+import { InitialMovieRatingPage } from "../features/on-board/routes/InitialMovieRating";
 
 export const router = createBrowserRouter([
   {
     element: <ProtectedRoute />,
     children: [
       {
-        element: <OnboardingGate />,
+        element: <AppGate />,
         children: [
           {
             path: "/onboarding",
             element: <PreferencesOnboardingPage />,
           },
-        ],
-      },
-      {
-        element: <AppGate />,
-        children: [
+          {
+            path: "/initial-movie-rating",
+            element: <InitialMovieRatingPage />,
+          },
           {
             element: <AppLayout />,
             children: [

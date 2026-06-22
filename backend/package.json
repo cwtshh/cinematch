@@ -14,7 +14,8 @@
     "db:reset": "bun run src/infra/database/scripts/reset-db.ts && bun run db:migrate",
     "db:reset:full": "bun run src/infra/database/scripts/reset-db.ts && bun run db:migrate && bun run db:seed:genres",
     "db:seed:genres": "bun run src/infra/database/scripts/seed-genres.ts",
-    "db:import:movies": "bun run src/infra/database/scripts/import-movies.ts"
+    "db:import:movies": "bun run src/infra/database/scripts/import-movies.ts",
+    "posters:fill": "bun run src/infra/database/scripts/fill-movie-posters.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

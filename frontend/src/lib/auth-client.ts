@@ -10,6 +10,10 @@ export const authClient = createAuthClient({
           type: "boolean",
           required: true,
         },
+        hasCompletedInitialMovieRating: {
+          type: "boolean",
+          required: true,
+        },
       },
     }),
   ],

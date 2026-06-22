@@ -23,6 +23,12 @@ export const auth = betterAuth({
         defaultValue: false,
         input: false,
       },
+      hasCompletedInitialMovieRating: {
+        type: "boolean",
+        required: true,
+        defaultValue: false,
+        input: false,
+      },
     },
   },
   schema: authSchema,

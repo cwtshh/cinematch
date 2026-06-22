@@ -1,0 +1,210 @@
+import type { FastifyReply, FastifyRequest } from "fastify";
+import {
+  and,
+  count,
+  eq,
+  inArray,
+  notInArray,
+  sql,
+  type SQL,
+} from "drizzle-orm";
+import { fromNodeHeaders } from "better-auth/node";
+
+import { db } from "@/infra/database/client";
+import {
+  movie,
+  movieGenre,
+  user,
+  userMovieRating,
+  userPreference,
+  userPreferenceGenre,
+} from "@/infra/database/drizzle/schema";
+
+import {
+  getMoviesToRateQuerySchema,
+  submitInitialMovieRatingsBodySchema,
+} from "./initial-movie-rating.schema";
+import { auth } from "@/infra/auth/auth";
+
+export async function getMoviesToRateHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const parsedQuery = getMoviesToRateQuerySchema.safeParse(request.query);
+
+  if (!parsedQuery.success) {
+    return reply.status(400).send({
+      message: "Query inválida.",
+      issues: parsedQuery.error.flatten(),
+    });
+  }
+
+  const session = await auth.api.getSession({
+    headers: fromNodeHeaders(request.headers),
+  });
+
+  const userId = session?.user.id;
+
+  if (!userId) {
+    return reply.status(401).send({
+      message: "Não autenticado.",
+    });
+  }
+
+  const limit = parsedQuery.data.limit;
+
+  const preference = await db.query.userPreference.findFirst({
+    where: eq(userPreference.userId, userId),
+  });
+
+  const preferredGenres = await db
+    .select({
+      genreId: userPreferenceGenre.genreId,
+    })
+    .from(userPreferenceGenre)
+    .where(eq(userPreferenceGenre.userId, userId));
+
+  const ratedMovies = await db
+    .select({
+      movieId: userMovieRating.movieId,
+    })
+    .from(userMovieRating)
+    .where(eq(userMovieRating.userId, userId));
+
+  const preferredGenreIds = preferredGenres.map((item) => item.genreId);
+  const ratedMovieIds = ratedMovies.map((item) => item.movieId);
+
+  const filters: SQL[] = [];
+
+  if (preferredGenreIds.length > 0) {
+    filters.push(inArray(movieGenre.genreId, preferredGenreIds));
+  }
+
+  if (preference?.era === "old") {
+    filters.push(sql`${movie.releaseYear} < 1980`);
+  }
+
+  if (preference?.era === "80_90") {
+    filters.push(
+      and(
+        sql`${movie.releaseYear} >= 1980`,
+        sql`${movie.releaseYear} <= 1999`,
+      )!,
+    );
+  }
+
+  if (preference?.era === "recent") {
+    filters.push(sql`${movie.releaseYear} >= 2000`);
+  }
+
+  if (preference?.popularity === "popular") {
+    filters.push(eq(movie.popularityBucket, "popular"));
+  }
+
+  if (preference?.popularity === "niche") {
+    filters.push(eq(movie.popularityBucket, "niche"));
+  }
+
+  if (ratedMovieIds.length > 0) {
+    filters.push(notInArray(movie.id, ratedMovieIds));
+  }
+
+  const items = await db
+    .select({
+      id: movie.id,
+      title: movie.title,
+      releaseYear: movie.releaseYear,
+      popularityBucket: movie.popularityBucket,
+    })
+    .from(movie)
+    .innerJoin(movieGenre, eq(movieGenre.movieId, movie.id))
+    .where(filters.length > 0 ? and(...filters) : undefined)
+    .groupBy(movie.id, movie.title, movie.releaseYear, movie.popularityBucket)
+    .orderBy(sql`random()`)
+    .limit(limit);
+
+  return reply.status(200).send({
+    items,
+  });
+}
+
+export async function submitInitialMovieRatingsHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const parsedBody = submitInitialMovieRatingsBodySchema.safeParse(
+    request.body,
+  );
+
+  if (!parsedBody.success) {
+    return reply.status(400).send({
+      message: "Body inválido.",
+      issues: parsedBody.error.flatten(),
+    });
+  }
+
+  const session = await auth.api.getSession({
+    headers: fromNodeHeaders(request.headers),
+  });
+
+  const userId = session?.user.id;
+
+  if (!userId) {
+    return reply.status(401).send({
+      message: "Não autenticado.",
+    });
+  }
+
+  const validRatings = parsedBody.data.ratings.filter(
+    (item) => item.rating > 0,
+  );
+
+  if (validRatings.length === 0) {
+    return reply.status(400).send({
+      message: "Avalie pelo menos um filme com nota maior que 0.",
+    });
+  }
+
+  await db
+    .insert(userMovieRating)
+    .values(
+      validRatings.map((item) => ({
+        userId,
+        movieId: item.movieId,
+        rating: item.rating,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [userMovieRating.userId, userMovieRating.movieId],
+      set: {
+        rating: sql`excluded.rating`,
+        updatedAt: sql`now()`,
+      },
+    });
+
+  const totalRatedResult = await db
+    .select({
+      count: count(),
+    })
+    .from(userMovieRating)
+    .where(eq(userMovieRating.userId, userId));
+
+  const totalRated = totalRatedResult[0]?.count ?? 0;
+  const hasCompletedInitialMovieRating = totalRated >= 5;
+
+  if (hasCompletedInitialMovieRating) {
+    await db
+      .update(user)
+      .set({
+        hasCompletedInitialMovieRating: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(user.id, userId));
+  }
+
+  return reply.status(200).send({
+    savedCount: validRatings.length,
+    totalRated,
+    hasCompletedInitialMovieRating,
+  });
+}

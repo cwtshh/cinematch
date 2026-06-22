@@ -91,7 +91,7 @@ export function PreferencesOnboardingPage() {
       await apiClient.post("/on-boarding/preferences", payload);
       await refetch();
 
-      navigate("/for-you", {
+      navigate("/initial-movie-rating", {
         replace: true,
         state: {
           onboardingPreferences: payload,

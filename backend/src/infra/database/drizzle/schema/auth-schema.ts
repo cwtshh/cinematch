@@ -15,6 +15,9 @@ export const user = pgTable("user", {
   hasCompletedOnboarding: boolean("has_completed_onboarding")
     .notNull()
     .default(false),
+  hasCompletedInitialMovieRating: boolean("has_completed_initial_movie_rating")
+    .notNull()
+    .default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });

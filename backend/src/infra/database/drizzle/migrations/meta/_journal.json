@@ -22,6 +22,20 @@
       "when": 1781744600657,
       "tag": "0002_add_preferences_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781813634974,
+      "tag": "0003_add_initial_movie_ratings_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781815378951,
+      "tag": "0004_add_movie_poster_table",
+      "breakpoints": true
     }
   ]
 }
