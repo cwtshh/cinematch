@@ -36,6 +36,13 @@
       "when": 1781815378951,
       "tag": "0004_add_movie_poster_table",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782584955070,
+      "tag": "0005_add_recomendations_table",
+      "breakpoints": true
     }
   ]
 }

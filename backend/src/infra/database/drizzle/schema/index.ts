@@ -6,3 +6,5 @@ export * from "./user-preference";
 export * from "./user-preference-genre";
 export * from "./user-movie-rating";
 export * from "./movie-poster-map";
+export * from "./recommended-feed";
+export * from "./recommended-feed-item";

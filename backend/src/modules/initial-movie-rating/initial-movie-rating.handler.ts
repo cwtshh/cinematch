@@ -25,6 +25,7 @@ import {
   submitInitialMovieRatingsBodySchema,
 } from "./initial-movie-rating.schema";
 import { auth } from "@/infra/auth/auth";
+import { generateAndSaveRecommendationsForUser } from "@/services/ai-inference-service/generate-and-save-recommendations";
 
 export async function getMoviesToRateHandler(
   request: FastifyRequest,
@@ -95,14 +96,6 @@ export async function getMoviesToRateHandler(
 
   if (preference?.era === "recent") {
     filters.push(sql`${movie.releaseYear} >= 2000`);
-  }
-
-  if (preference?.popularity === "popular") {
-    filters.push(eq(movie.popularityBucket, "popular"));
-  }
-
-  if (preference?.popularity === "niche") {
-    filters.push(eq(movie.popularityBucket, "niche"));
   }
 
   if (ratedMovieIds.length > 0) {
@@ -202,9 +195,32 @@ export async function submitInitialMovieRatingsHandler(
       .where(eq(user.id, userId));
   }
 
+  let recommendations: Awaited<
+    ReturnType<typeof generateAndSaveRecommendationsForUser>
+  > | null = null;
+  let recommendationsGenerated = false;
+  let recommendationsError: string | null = null;
+
+  if (hasCompletedInitialMovieRating) {
+    try {
+      recommendations = await generateAndSaveRecommendationsForUser({
+        userId,
+        nRecommendations: 10,
+      });
+      recommendationsGenerated = true;
+    } catch (error) {
+      request.log.error(error);
+      recommendationsError =
+        "As avaliações foram salvas, mas não foi possível gerar recomendações agora.";
+    }
+  }
+
   return reply.status(200).send({
     savedCount: validRatings.length,
     totalRated,
     hasCompletedInitialMovieRating,
+    recommendationsGenerated,
+    recommendationsError,
+    recommendations,
   });
 }

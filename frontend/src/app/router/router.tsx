@@ -7,6 +7,7 @@ import { AppGate } from "./gates/AppGate";
 import { PreferencesOnboardingPage } from "../features/on-board/routes/PreferencesOnboarding";
 import { PublicGate } from "./gates/PublicGate";
 import { InitialMovieRatingPage } from "../features/on-board/routes/InitialMovieRating";
+import { ForYou } from "../features/for-you/routes/ForYou";
 
 export const router = createBrowserRouter([
   {
@@ -32,7 +33,7 @@ export const router = createBrowserRouter([
               },
               {
                 path: "/for-you",
-                element: <div>Home</div>,
+                element: <ForYou />,
               },
               {
                 path: "/search",

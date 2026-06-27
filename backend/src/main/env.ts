@@ -18,6 +18,7 @@ const envSchema = z.object({
       "http://localhost:3000,http://localhost:5173,http://localhost:3333",
     )
     .transform((str) => str.split(",").map((s) => s.trim())),
+  INFERENCE_API_URL: z.string().url().default("http://localhost:8001"),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
