@@ -14,9 +14,11 @@ import {
 import {
   rateRecommendationBodySchema,
   rateRecommendationParamsSchema,
+  refreshRecommendationsBodySchema,
 } from "./recommendations.schema";
 import { rateRecommendation } from "./rate-recommendation";
 import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
+import { generateAndSaveRecommendationsForUser } from "@/services/ai-inference-service/generate-and-save-recommendations";
 
 export async function getActiveRecommendationsHandler(
   request: FastifyRequest,
@@ -173,4 +175,53 @@ export async function rateRecommendationHandler(
     message: "Avaliação salva com sucesso.",
     item,
   });
+}
+
+export async function refreshRecommendationsHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const parsedBody = refreshRecommendationsBodySchema.safeParse(request.body);
+
+  if (!parsedBody.success) {
+    return reply.status(400).send({
+      message: "Body inválido.",
+      issues: parsedBody.error.flatten(),
+    });
+  }
+
+  const session = await auth.api.getSession({
+    headers: fromNodeHeaders(request.headers),
+  });
+
+  const userId = session?.user.id;
+
+  if (!userId) {
+    return reply.status(401).send({
+      message: "Não autenticado.",
+    });
+  }
+
+  try {
+    const recommendations = await generateAndSaveRecommendationsForUser({
+      userId,
+      nRecommendations: parsedBody.data?.limit ?? 10,
+    });
+
+    return reply.status(200).send({
+      message: "Novas recomendações geradas com sucesso.",
+      recommendationsGenerated: true,
+      recommendationsError: null,
+      recommendations,
+    });
+  } catch (error) {
+    request.log.error(error);
+
+    return reply.status(500).send({
+      message: "Não foi possível gerar novas recomendações agora.",
+      recommendationsGenerated: false,
+      recommendationsError: "Não foi possível gerar novas recomendações agora.",
+      recommendations: null,
+    });
+  }
 }

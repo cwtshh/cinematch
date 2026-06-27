@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { RecommendedMovieCard } from "../components/recommended-movie-card";
 import type {
@@ -11,6 +11,8 @@ type ApiErrorResponse = {
   message?: string;
   error?: string;
 };
+
+const MIN_RATED_TO_REFRESH = 5;
 
 export function ForYou() {
   const [data, setData] = useState<ActiveRecommendationsResponse | null>(null);
@@ -58,6 +60,44 @@ export function ForYou() {
     }
   }
 
+  async function handleRefreshRecommendations() {
+    if (!canRefreshRecommendations || isRefreshing) {
+      return;
+    }
+
+    try {
+      setIsRefreshing(true);
+      setError(null);
+
+      await apiClient.post("/recommendations/refresh", {
+        limit: 10,
+      });
+
+      const { data } = await apiClient.get<ActiveRecommendationsResponse>(
+        "/recommendations/active",
+      );
+
+      setData(data);
+      setItems(data.items);
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const responseData = error.response?.data as
+          | ApiErrorResponse
+          | undefined;
+
+        setError(
+          responseData?.message ??
+            responseData?.error ??
+            "Não foi possível gerar novas recomendações.",
+        );
+      } else {
+        setError("Ocorreu um erro inesperado.");
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
   async function handleRateMovie(feedItemId: string, rating: number) {
     try {
       setIsSubmittingRating(true);
@@ -67,6 +107,8 @@ export function ForYou() {
         rating,
       });
 
+      const ratedAt = new Date().toISOString();
+
       setItems((currentItems) =>
         currentItems.map((movie) =>
           movie.feedItemId === feedItemId
@@ -74,11 +116,29 @@ export function ForYou() {
                 ...movie,
                 userRating: rating,
                 status: "rated",
-                ratedAt: new Date().toISOString(),
+                ratedAt,
               }
             : movie,
         ),
       );
+
+      setData((currentData) => {
+        if (!currentData) return currentData;
+
+        return {
+          ...currentData,
+          items: currentData.items.map((movie) =>
+            movie.feedItemId === feedItemId
+              ? {
+                  ...movie,
+                  userRating: rating,
+                  status: "rated",
+                  ratedAt,
+                }
+              : movie,
+          ),
+        };
+      });
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const responseData = error.response?.data as
@@ -106,6 +166,17 @@ export function ForYou() {
     return () => window.clearTimeout(timeoutId);
   }, []);
 
+  const ratedMoviesCount = useMemo(() => {
+    return items.filter((movie) => (movie.userRating ?? 0) > 0).length;
+  }, [items]);
+
+  const remainingRatingsToRefresh = Math.max(
+    MIN_RATED_TO_REFRESH - ratedMoviesCount,
+    0,
+  );
+
+  const canRefreshRecommendations = ratedMoviesCount >= MIN_RATED_TO_REFRESH;
+
   if (isLoading) {
     return (
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
@@ -120,7 +191,7 @@ export function ForYou() {
               key={index}
               className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
             >
-              <div className="aspect-2/3 animate-pulse bg-zinc-200 dark:bg-zinc-800" />
+              <div className="aspect-[2/3] animate-pulse bg-zinc-200 dark:bg-zinc-800" />
               <div className="space-y-3 p-4">
                 <div className="h-5 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
                 <div className="h-4 w-1/2 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
@@ -136,7 +207,7 @@ export function ForYou() {
     );
   }
 
-  if (error) {
+  if (error && items.length === 0) {
     return (
       <div className="mx-auto flex min-h-[60vh] w-full max-w-3xl flex-col items-center justify-center gap-4 px-4 text-center">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
@@ -183,14 +254,38 @@ export function ForYou() {
           </p>
         </div>
 
-        <button
-          onClick={() => loadRecommendations({ silent: true })}
-          disabled={isRefreshing}
-          className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          {isRefreshing ? "Atualizando..." : "Atualizar"}
-        </button>
+        <div className="flex flex-col items-start gap-2 md:items-end">
+          <button
+            onClick={handleRefreshRecommendations}
+            disabled={isRefreshing || !canRefreshRecommendations}
+            className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            {isRefreshing
+              ? "Gerando mais filmes..."
+              : "Quero mais recomendações"}
+          </button>
+
+          {!canRefreshRecommendations && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Avalie mais {remainingRatingsToRefresh}{" "}
+              {remainingRatingsToRefresh === 1 ? "filme" : "filmes"} para
+              liberar novas recomendações.
+            </p>
+          )}
+
+          {canRefreshRecommendations && (
+            <p className="text-sm text-emerald-600 dark:text-emerald-400">
+              Você já pode solicitar mais recomendações.
+            </p>
+          )}
+        </div>
       </div>
+
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </div>
+      )}
 
       {data?.feed?.context && (
         <div className="flex flex-wrap gap-2">
@@ -214,6 +309,11 @@ export function ForYou() {
               Popularidade: {data.feed.context.popularity}
             </span>
           )}
+
+          <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+            Avaliados: {ratedMoviesCount}/{MIN_RATED_TO_REFRESH} para liberar
+            mais
+          </span>
         </div>
       )}
 
