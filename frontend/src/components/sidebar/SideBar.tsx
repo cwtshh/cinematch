@@ -1,10 +1,10 @@
 import { authClient } from "@/lib/auth-client";
 import {
   Clapperboard,
+  Clock,
   Film,
   LogOut,
   Search,
-  SlidersHorizontal,
   Sparkles,
   User,
 } from "lucide-react";
@@ -13,7 +13,7 @@ import { NavLink } from "react-router";
 const tabs = [
   { to: "/for-you", Icon: Film, label: "Para você", end: true },
   { to: "/search", Icon: Search, label: "Buscar" },
-  { to: "/preferences", Icon: SlidersHorizontal, label: "Preferências" },
+  { to: "/historico", Icon: Clock, label: "Histórico" },
   { to: "/profile", Icon: User, label: "Perfil" },
 ];
 
