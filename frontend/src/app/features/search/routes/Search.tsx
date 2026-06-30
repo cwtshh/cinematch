@@ -23,9 +23,7 @@ export function Search() {
     const hasActiveFilters = 
       titleTrimmed || 
       filters.year.trim() || 
-      filters.genreText.trim() || 
-      filters.releaseDateStart || 
-      filters.releaseDateEnd;
+      filters.genreText.trim();
 
     if (!hasActiveFilters) {
       setMovies([]);
@@ -48,9 +46,7 @@ export function Search() {
         const fallbackResponse = await getMovies({
           title: titleTrimmed,
           year: "", 
-          genreText: "", 
-          releaseDateStart: "",
-          releaseDateEnd: ""
+          genreText: ""
         }, 1);
 
         const exactIds = new Set(response.data.map(m => m.id));
