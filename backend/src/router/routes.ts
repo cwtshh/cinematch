@@ -5,6 +5,7 @@ import { onBoardingRoutes } from "@/modules/on-boarding/http/on-boarding.routes"
 import { recommendationsRoutes } from "@/modules/recommendations/recommendations.route";
 import { historyRoutes } from "@/modules/history/history.routes";
 import type { FastifyPluginAsync } from "fastify";
+import {searchroutes} from "@/modules/search/search.routes";
 
 export const appRoutes: FastifyPluginAsync = async (app) => {
   await app.register(authRoutes);
@@ -15,4 +16,5 @@ export const appRoutes: FastifyPluginAsync = async (app) => {
   await app.register(aiInferenceRoutes, { prefix: "/inference" });
   await app.register(recommendationsRoutes, { prefix: "/recommendations" });
   await app.register(historyRoutes, { prefix: "/history" });
+  await app.register(searchroutes, { prefix: "/search" });
 };

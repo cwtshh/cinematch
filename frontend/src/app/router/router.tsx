@@ -9,6 +9,7 @@ import { PublicGate } from "./gates/PublicGate";
 import { InitialMovieRatingPage } from "../features/on-board/routes/InitialMovieRating";
 import { ForYou } from "../features/for-you/routes/ForYou";
 import { History } from "../features/history/routes/History";
+import { Search } from "../features/search/routes/Search";
 
 export const router = createBrowserRouter([
   {
@@ -38,7 +39,7 @@ export const router = createBrowserRouter([
               },
               {
                 path: "/search",
-                element: <div>Search</div>,
+                element:  <Search />,
               },
               {
                 path: "/historico",
