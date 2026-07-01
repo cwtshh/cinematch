@@ -1,7 +1,7 @@
 import z from "zod";
 
 export const getMoviesToRateQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(30).optional().default(12),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
 });
 
 export const submitInitialMovieRatingsBodySchema = z.object({

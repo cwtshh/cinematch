@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { fromNodeHeaders } from "better-auth/node";
 
 import { auth } from "@/infra/auth/auth";
@@ -54,7 +54,9 @@ export async function getHistoryHandler(
     )
     .innerJoin(movie, eq(movie.id, recommendedFeedItem.movieId))
     .leftJoin(moviePosterMap, eq(moviePosterMap.movieId, movie.id))
-    .where(eq(recommendedFeed.userId, userId));
+    .where(eq(recommendedFeed.userId, userId))
+    .orderBy(desc(recommendedFeed.generatedAt), desc(recommendedFeedItem.ratedAt))
+    .limit(200);
 
   // Ordena por: avaliados → ratedAt desc; acessados → feedGeneratedAt desc
   const allItems = items.sort((a, b) => {

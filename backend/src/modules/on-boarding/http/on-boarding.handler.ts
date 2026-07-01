@@ -9,6 +9,34 @@ import {
 } from "@/infra/database/drizzle/schema";
 import type { SaveOnBoardingPreferencesBody } from "./on-boarding.schema";
 
+export async function getPreferencesHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const userId = request.user?.id;
+
+  if (!userId) {
+    return reply.status(401).send({ message: "Usuário não autenticado." });
+  }
+
+  const [preference, genreRows] = await Promise.all([
+    db.query.userPreference.findFirst({
+      where: eq(userPreference.userId, userId),
+    }),
+    db
+      .select({ slug: genre.slug })
+      .from(userPreferenceGenre)
+      .innerJoin(genre, eq(genre.id, userPreferenceGenre.genreId))
+      .where(eq(userPreferenceGenre.userId, userId)),
+  ]);
+
+  return reply.status(200).send({
+    genres: genreRows.map((r) => r.slug),
+    era: preference?.era ?? "any",
+    popularity: preference?.popularity ?? "any",
+  });
+}
+
 type SaveOnBoardingPreferencesRequest = FastifyRequest<{
   Body: SaveOnBoardingPreferencesBody;
 }>;

@@ -28,7 +28,7 @@ class RecommendRequest(BaseModel):
         default_factory=list,
         description="filmes a excluir da recomendação (geralmente = ratings já dados)",
     )
-    n_recommendations: int = Field(default=10, ge=1, le=50)
+    n_recommendations: int = Field(default=20, ge=1, le=50)
 
 
 class RecommendResponse(BaseModel):

@@ -44,7 +44,7 @@ export const getActiveRecommendationsResponseSchema = z.object({
 });
 
 export const refreshRecommendationsBodySchema = z.object({
-  limit: z.number().int().min(1).max(20).default(10).optional(),
+  limit: z.number().int().min(1).max(50).default(20).optional(),
 });
 
 export const rateRecommendationParamsSchema = z.object({
