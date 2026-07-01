@@ -43,6 +43,13 @@
       "when": 1782584955070,
       "tag": "0005_add_recomendations_table",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782675600000,
+      "tag": "0006_fix_recommended_feed_active_unique",
+      "breakpoints": true
     }
   ]
 }

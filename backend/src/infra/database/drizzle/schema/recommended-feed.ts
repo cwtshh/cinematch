@@ -8,6 +8,7 @@ import {
   pgEnum,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { user } from "./auth-schema";
 
 export const recommendedFeedStatusEnum = pgEnum("recommended_feed_status", [
@@ -36,9 +37,11 @@ export const recommendedFeed = pgTable(
     }>(),
   },
   (table) => ({
-    userStatusUnique: uniqueIndex("recommended_feed_user_status_unique").on(
-      table.userId,
-      table.status,
-    ),
+    // Um usuário pode ter VÁRIOS feeds "archived" (necessário pro Histórico),
+    // mas apenas UM feed "active" por vez. Índice único PARCIAL resolve o
+    // conflito que estourava ao arquivar feeds em refreshes repetidos.
+    userActiveUnique: uniqueIndex("recommended_feed_user_active_unique")
+      .on(table.userId)
+      .where(sql`${table.status} = 'active'`),
   }),
 );

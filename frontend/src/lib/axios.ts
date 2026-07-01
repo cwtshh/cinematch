@@ -13,6 +13,12 @@ export const apiClient = axios.create({
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Erros de cancelamento (AbortController) passam sem transformação
+    // para que o name "CanceledError" seja preservado e detectado corretamente
+    if (axios.isCancel(error)) {
+      return Promise.reject(error);
+    }
+
     if (axios.isAxiosError(error)) {
       const message =
         error.response?.data?.message ||
