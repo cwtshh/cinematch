@@ -12,6 +12,14 @@ type ApiErrorResponse = {
   error?: string;
 };
 
+function extrairMensagemDeErro(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as ApiErrorResponse | undefined;
+    return data?.message ?? data?.error ?? fallback;
+  }
+  return "Ocorreu um erro inesperado.";
+}
+
 const MIN_RATED_TO_REFRESH = 5;
 
 export function ForYou() {
@@ -41,19 +49,7 @@ export function ForYou() {
       setData(data);
       setItems(data.items);
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const responseData = error.response?.data as
-          | ApiErrorResponse
-          | undefined;
-
-        setError(
-          responseData?.message ??
-            responseData?.error ??
-            "Não foi possível carregar suas recomendações.",
-        );
-      } else {
-        setError("Ocorreu um erro inesperado.");
-      }
+      setError(extrairMensagemDeErro(error, "Não foi possível carregar suas recomendações."));
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -70,7 +66,7 @@ export function ForYou() {
       setError(null);
 
       await apiClient.post("/recommendations/refresh", {
-        limit: 10,
+        limit: 20,
       });
 
       const { data } = await apiClient.get<ActiveRecommendationsResponse>(
@@ -80,19 +76,7 @@ export function ForYou() {
       setData(data);
       setItems(data.items);
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const responseData = error.response?.data as
-          | ApiErrorResponse
-          | undefined;
-
-        setError(
-          responseData?.message ??
-            responseData?.error ??
-            "Não foi possível gerar novas recomendações.",
-        );
-      } else {
-        setError("Ocorreu um erro inesperado.");
-      }
+      setError(extrairMensagemDeErro(error, "Não foi possível gerar novas recomendações."));
     } finally {
       setIsRefreshing(false);
     }
@@ -140,30 +124,14 @@ export function ForYou() {
         };
       });
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const responseData = error.response?.data as
-          | ApiErrorResponse
-          | undefined;
-
-        setError(
-          responseData?.message ??
-            responseData?.error ??
-            "Não foi possível salvar sua avaliação.",
-        );
-      } else {
-        setError("Ocorreu um erro inesperado.");
-      }
+      setError(extrairMensagemDeErro(error, "Não foi possível salvar sua avaliação."));
     } finally {
       setIsSubmittingRating(false);
     }
   }
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      loadRecommendations();
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
+    loadRecommendations();
   }, []);
 
   const ratedMoviesCount = useMemo(() => {

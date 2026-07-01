@@ -38,3 +38,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Dependências
+node_modules/

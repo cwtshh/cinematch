@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { fromNodeHeaders } from "better-auth/node";
 
 import { auth } from "@/infra/auth/auth";
@@ -48,7 +48,9 @@ export async function getHistoryHandler(
       eq(recommendedFeed.id, recommendedFeedItem.feedId),
     )
     .innerJoin(movie, eq(movie.id, recommendedFeedItem.movieId))
-    .where(eq(recommendedFeed.userId, userId));
+    .where(eq(recommendedFeed.userId, userId))
+    .orderBy(desc(recommendedFeed.generatedAt), desc(recommendedFeedItem.ratedAt))
+    .limit(200);
 
   const allItems = items.sort((a, b) => {
     const dateA = a.ratedAt ?? a.feedGeneratedAt;

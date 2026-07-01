@@ -26,6 +26,7 @@ import {
 } from "./initial-movie-rating.schema";
 import { auth } from "@/infra/auth/auth";
 import { generateAndSaveRecommendationsForUser } from "@/services/ai-inference-service/generate-and-save-recommendations";
+import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
 
 export async function getMoviesToRateHandler(
   request: FastifyRequest,
@@ -81,11 +82,11 @@ export async function getMoviesToRateHandler(
     filters.push(inArray(movieGenre.genreId, preferredGenreIds));
   }
 
-  if (preference?.era === "old") {
+  if (preference?.era === "before-1980") {
     filters.push(sql`${movie.releaseYear} < 1980`);
   }
 
-  if (preference?.era === "80_90") {
+  if (preference?.era === "80s-90s") {
     filters.push(
       and(
         sql`${movie.releaseYear} >= 1980`,
@@ -94,7 +95,7 @@ export async function getMoviesToRateHandler(
     );
   }
 
-  if (preference?.era === "recent") {
+  if (preference?.era === "2000-plus") {
     filters.push(sql`${movie.releaseYear} >= 2000`);
   }
 
@@ -102,7 +103,7 @@ export async function getMoviesToRateHandler(
     filters.push(notInArray(movie.id, ratedMovieIds));
   }
 
-  const items = await db
+  const rows = await db
     .select({
       id: movie.id,
       title: movie.title,
@@ -115,6 +116,28 @@ export async function getMoviesToRateHandler(
     .groupBy(movie.id, movie.title, movie.releaseYear, movie.popularityBucket)
     .orderBy(sql`random()`)
     .limit(limit);
+
+  const TMDB_BATCH_SIZE = 3;
+  const items = [];
+  for (let i = 0; i < rows.length; i += TMDB_BATCH_SIZE) {
+    const batch = rows.slice(i, i + TMDB_BATCH_SIZE);
+    const enriched = await Promise.all(
+      batch.map(async (row) => {
+        let posterUrl: string | null = null;
+        try {
+          const tmdb = await searchFirstMovieByTitle({
+            title: row.title,
+            year: row.releaseYear ?? undefined,
+          });
+          posterUrl = tmdb?.posterUrl ?? null;
+        } catch {
+          request.log.warn(`TMDB falhou para "${row.title}", seguindo sem poster`);
+        }
+        return { ...row, posterUrl };
+      }),
+    );
+    items.push(...enriched);
+  }
 
   return reply.status(200).send({
     items,
@@ -205,7 +228,7 @@ export async function submitInitialMovieRatingsHandler(
     try {
       recommendations = await generateAndSaveRecommendationsForUser({
         userId,
-        nRecommendations: 10,
+        nRecommendations: 20,
       });
       recommendationsGenerated = true;
     } catch (error) {

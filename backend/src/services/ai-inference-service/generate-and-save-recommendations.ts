@@ -8,7 +8,7 @@ type GenerateAndSaveRecommendationsInput = {
 
 export async function generateAndSaveRecommendationsForUser({
   userId,
-  nRecommendations = 10,
+  nRecommendations = 20,
 }: GenerateAndSaveRecommendationsInput) {
   const items = await generateRecommendationsForUser({
     userId,

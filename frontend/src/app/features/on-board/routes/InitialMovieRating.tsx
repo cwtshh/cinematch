@@ -22,6 +22,7 @@ type MovieToRate = {
   title: string;
   releaseYear: number | null;
   popularityBucket: string | null;
+  posterUrl: string | null;
 };
 
 type GetMoviesResponse = {
@@ -244,6 +245,15 @@ export function InitialMovieRatingPage() {
                       key={movie.id}
                       className="border-border bg-background shadow-none"
                     >
+                      {movie.posterUrl && (
+                        <div className="relative h-48 w-full overflow-hidden rounded-t-xl">
+                          <img
+                            src={movie.posterUrl}
+                            alt={`Poster de ${movie.title}`}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                      )}
                       <CardHeader className="space-y-3">
                         <div className="space-y-2">
                           <CardTitle className="text-base leading-snug">
