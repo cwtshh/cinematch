@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-export const rateRecommendedMovieParamsSchema = z.object({
-  feedItemId: z.uuid(),
-});
-
-export const rateRecommendedMovieBodySchema = z.object({
-  rating: z.number().min(0.5).max(5),
-});
-
 export const getActiveRecommendationsResponseSchema = z.object({
   feed: z.object({
     id: z.uuid(),

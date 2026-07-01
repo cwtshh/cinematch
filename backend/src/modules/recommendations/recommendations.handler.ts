@@ -102,23 +102,33 @@ export async function getActiveRecommendationsHandler(
     genresByMovieId.set(relation.movieId, current);
   }
 
-  const enrichedItems = await Promise.all(
-    items.map(async (item) => {
-      const tmdbMovie = await searchFirstMovieByTitle({
-        title: item.title,
-        year: item.releaseYear ?? undefined,
-      });
-
-      return {
-        ...item,
-        posterPath: tmdbMovie?.posterPath ?? null,
-        posterUrl: tmdbMovie?.posterUrl ?? null,
-        backdropPath: tmdbMovie?.backdropPath ?? null,
-        backdropUrl: tmdbMovie?.backdropUrl ?? null,
-        genres: genresByMovieId.get(item.id) ?? [],
-      };
-    }),
-  );
+  const TMDB_BATCH_SIZE = 3;
+  const enrichedItems = [];
+  for (let i = 0; i < items.length; i += TMDB_BATCH_SIZE) {
+    const batch = items.slice(i, i + TMDB_BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (item) => {
+        let tmdbMovie = null;
+        try {
+          tmdbMovie = await searchFirstMovieByTitle({
+            title: item.title,
+            year: item.releaseYear ?? undefined,
+          });
+        } catch {
+          request.log.warn(`TMDB falhou para "${item.title}", seguindo sem poster`);
+        }
+        return {
+          ...item,
+          posterPath: tmdbMovie?.posterPath ?? null,
+          posterUrl: tmdbMovie?.posterUrl ?? null,
+          backdropPath: tmdbMovie?.backdropPath ?? null,
+          backdropUrl: tmdbMovie?.backdropUrl ?? null,
+          genres: genresByMovieId.get(item.id) ?? [],
+        };
+      }),
+    );
+    enrichedItems.push(...batchResults);
+  }
 
   return reply.status(200).send({
     feed,
