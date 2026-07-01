@@ -8,11 +8,10 @@ import {
   genre,
   movie,
   movieGenre,
-  moviePosterMap,
   recommendedFeed,
   recommendedFeedItem,
 } from "@/infra/database/drizzle/schema";
-import { buildTmdbPosterUrl } from "@/infra/integrations/tmdb/tmdb-image";
+import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
 
 export async function getHistoryHandler(
   request: FastifyRequest,
@@ -28,8 +27,6 @@ export async function getHistoryHandler(
     return reply.status(401).send({ message: "Não autenticado." });
   }
 
-  // Busca todos os feed items do usuário (todos os feeds, não só o ativo)
-  // Faz leftJoin com movie_poster_map para evitar chamadas à API do TMDB
   const items = await db
     .select({
       feedItemId: recommendedFeedItem.id,
@@ -44,8 +41,6 @@ export async function getHistoryHandler(
       releaseYear: movie.releaseYear,
       popularityBucket: movie.popularityBucket,
       feedGeneratedAt: recommendedFeed.generatedAt,
-      posterPath: moviePosterMap.posterPath,
-      backdropPath: moviePosterMap.backdropPath,
     })
     .from(recommendedFeedItem)
     .innerJoin(
@@ -53,13 +48,12 @@ export async function getHistoryHandler(
       eq(recommendedFeed.id, recommendedFeedItem.feedId),
     )
     .innerJoin(movie, eq(movie.id, recommendedFeedItem.movieId))
-    .leftJoin(moviePosterMap, eq(moviePosterMap.movieId, movie.id))
     .where(eq(recommendedFeed.userId, userId));
 
-  // Ordena por: avaliados → ratedAt desc; acessados → feedGeneratedAt desc
   const allItems = items.sort((a, b) => {
     const dateA = a.ratedAt ?? a.feedGeneratedAt;
     const dateB = b.ratedAt ?? b.feedGeneratedAt;
+
     return new Date(dateB).getTime() - new Date(dateA).getTime();
   });
 
@@ -85,41 +79,69 @@ export async function getHistoryHandler(
 
   for (const relation of genreRelations) {
     const current = genresByMovieId.get(relation.movieId) ?? [];
-    current.push({ slug: relation.slug, label: relation.label });
+    current.push({
+      slug: relation.slug,
+      label: relation.label,
+    });
     genresByMovieId.set(relation.movieId, current);
   }
 
-  // Sem chamadas externas: poster já vem do cache no banco
-  const enrichedItems = allItems.map((item) => ({
-    feedItemId: item.feedItemId,
-    feedId: item.feedId,
-    rank: item.rank,
-    status: item.status,
-    userRating: item.userRating,
-    ratedAt: item.ratedAt,
-    accessedAt: item.feedGeneratedAt,
-    id: item.id,
-    sourceMovieId: item.sourceMovieId,
-    title: item.title,
-    releaseYear: item.releaseYear,
-    popularityBucket: item.popularityBucket,
-    posterPath: item.posterPath ?? null,
-    posterUrl: buildTmdbPosterUrl(item.posterPath ?? null, "w500"),
-    backdropPath: item.backdropPath ?? null,
-    backdropUrl: buildTmdbPosterUrl(item.backdropPath ?? null, "original"),
-    genres: genresByMovieId.get(item.id) ?? [],
-  }));
+  const TMDB_BATCH_SIZE = 3;
+  const enrichedItems = [];
 
-  // "Acessados" = todos os itens (o usuário os recebeu no feed)
+  for (let i = 0; i < allItems.length; i += TMDB_BATCH_SIZE) {
+    const batch = allItems.slice(i, i + TMDB_BATCH_SIZE);
+
+    const batchResults = await Promise.all(
+      batch.map(async (item) => {
+        let tmdbMovie = null;
+
+        try {
+          tmdbMovie = await searchFirstMovieByTitle({
+            title: item.title,
+            year: item.releaseYear ?? undefined,
+          });
+        } catch {
+          request.log.warn(
+            `TMDB falhou para "${item.title}", seguindo sem poster`,
+          );
+        }
+
+        return {
+          feedItemId: item.feedItemId,
+          feedId: item.feedId,
+          rank: item.rank,
+          status: item.status,
+          userRating: item.userRating,
+          ratedAt: item.ratedAt,
+          accessedAt: item.feedGeneratedAt,
+          id: item.id,
+          sourceMovieId: item.sourceMovieId,
+          title: item.title,
+          releaseYear: item.releaseYear,
+          popularityBucket: item.popularityBucket,
+          posterPath: tmdbMovie?.posterPath ?? null,
+          posterUrl: tmdbMovie?.posterUrl ?? null,
+          backdropPath: tmdbMovie?.backdropPath ?? null,
+          backdropUrl: tmdbMovie?.backdropUrl ?? null,
+          genres: genresByMovieId.get(item.id) ?? [],
+        };
+      }),
+    );
+
+    enrichedItems.push(...batchResults);
+  }
+
   const accessed = enrichedItems;
 
-  // "Avaliados" = apenas os que têm userRating, ordenados por ratedAt desc
   const rated = enrichedItems
     .filter((item) => item.status === "rated" && item.ratedAt !== null)
     .sort(
-      (a, b) =>
-        new Date(b.ratedAt!).getTime() - new Date(a.ratedAt!).getTime(),
+      (a, b) => new Date(b.ratedAt!).getTime() - new Date(a.ratedAt!).getTime(),
     );
 
-  return reply.status(200).send({ accessed, rated });
+  return reply.status(200).send({
+    accessed,
+    rated,
+  });
 }

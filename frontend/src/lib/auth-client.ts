@@ -10,11 +10,11 @@ export const authClient = createAuthClient({
       user: {
         hasCompletedOnboarding: {
           type: "boolean",
-          required: true,
+          required: false,
         },
         hasCompletedInitialMovieRating: {
           type: "boolean",
-          required: true,
+          required: false,
         },
       },
     }),

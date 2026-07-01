@@ -50,6 +50,13 @@
       "when": 1782675600000,
       "tag": "0006_fix_recommended_feed_active_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782940213455,
+      "tag": "0007_kind_gravity",
+      "breakpoints": true
     }
   ]
 }

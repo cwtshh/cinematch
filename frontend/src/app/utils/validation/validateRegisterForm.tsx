@@ -1,5 +1,6 @@
 export type FormErrors = {
   name?: string;
+  username?: string;
   email?: string;
   password?: string;
   confirmPassword?: string;
@@ -8,6 +9,7 @@ export type FormErrors = {
 
 export function validateRegisterForm(data: {
   name: string;
+  username: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -15,6 +17,7 @@ export function validateRegisterForm(data: {
   const errors: FormErrors = {};
 
   const name = data.name.trim();
+  const username = data.username.trim().toLowerCase();
   const email = data.email.trim().toLowerCase();
   const password = data.password;
   const confirmPassword = data.confirmPassword;
@@ -23,6 +26,17 @@ export function validateRegisterForm(data: {
     errors.name = "Informe seu nome.";
   } else if (name.length < 2) {
     errors.name = "Seu nome deve ter pelo menos 2 caracteres.";
+  }
+
+  if (!username) {
+    errors.username = "Informe seu username.";
+  } else if (username.length < 3) {
+    errors.username = "O username deve ter pelo menos 3 caracteres.";
+  } else if (username.length > 20) {
+    errors.username = "O username deve ter no máximo 20 caracteres.";
+  } else if (!/^[a-z0-9_]+$/.test(username)) {
+    errors.username =
+      "O username pode conter apenas letras minúsculas, números e underscore.";
   }
 
   if (!email) {

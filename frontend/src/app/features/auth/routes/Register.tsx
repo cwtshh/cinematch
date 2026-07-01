@@ -17,6 +17,7 @@ export function Register() {
   const navigate = useNavigate();
 
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -27,11 +28,12 @@ export function Register() {
   const normalizedData = useMemo(
     () => ({
       name: name.trim(),
+      username: username.trim().toLowerCase(),
       email: email.trim().toLowerCase(),
       password,
       confirmPassword,
     }),
-    [name, email, password, confirmPassword],
+    [name, username, email, password, confirmPassword],
   );
 
   const validationErrors = useMemo(
@@ -55,6 +57,7 @@ export function Register() {
     try {
       const result = await authClient.signUp.email({
         name: normalizedData.name,
+        username: normalizedData.username,
         email: normalizedData.email,
         password: normalizedData.password,
       });
@@ -67,7 +70,6 @@ export function Register() {
       }
 
       toast.success("Conta criada com sucesso.");
-
       navigate("/login");
     } catch (error) {
       const message = getAuthErrorMessage(error);
@@ -138,6 +140,27 @@ export function Register() {
                 {errors.name && (
                   <p className="mt-1 text-sm text-red-400 font-inter">
                     {errors.name}
+                  </p>
+                )}
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="username">Username</FieldLabel>
+                <Input
+                  id="username"
+                  placeholder="seuusername"
+                  type="text"
+                  value={username}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    clearFieldError("username");
+                  }}
+                  autoComplete="username"
+                  aria-invalid={!!errors.username}
+                />
+                {errors.username && (
+                  <p className="mt-1 text-sm text-red-400 font-inter">
+                    {errors.username}
                   </p>
                 )}
               </Field>

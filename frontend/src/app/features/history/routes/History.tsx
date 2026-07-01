@@ -55,30 +55,30 @@ export function History() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  async function loadHistory() {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-    async function load() {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const result = await getHistory(controller.signal);
-        setData(result);
-      } catch (err) {
-        if ((err as Error).name !== "CanceledError") {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Não foi possível carregar seu histórico.",
-          );
-        }
-      } finally {
-        setIsLoading(false);
-      }
+      const result = await getHistory();
+      setData(result);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Não foi possível carregar seu histórico.",
+      );
+    } finally {
+      setIsLoading(false);
     }
+  }
 
-    load();
-    return () => controller.abort();
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      loadHistory();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   const items: HistoryItem[] =
@@ -97,9 +97,40 @@ export function History() {
     },
   ];
 
+  if (isLoading) {
+    return (
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
+        <div className="space-y-2">
+          <div className="h-8 w-32 animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
+          <div className="h-5 w-96 max-w-full animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
+        </div>
+
+        <SkeletonGrid />
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] w-full max-w-3xl flex-col items-center justify-center gap-4 px-4 text-center">
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+          Não foi possível carregar seu histórico
+        </h1>
+
+        <p className="max-w-xl text-zinc-600 dark:text-zinc-400">{error}</p>
+
+        <button
+          onClick={() => loadHistory()}
+          className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
-      {/* Header */}
       <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
         <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
           Histórico
@@ -109,8 +140,7 @@ export function History() {
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900 w-fit">
+      <div className="flex w-fit gap-1 rounded-xl border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -140,17 +170,13 @@ export function History() {
         ))}
       </div>
 
-      {/* Error */}
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </div>
       )}
 
-      {/* Content */}
-      {isLoading ? (
-        <SkeletonGrid />
-      ) : items.length === 0 ? (
+      {items.length === 0 ? (
         <EmptyState tab={activeTab} />
       ) : (
         <div
