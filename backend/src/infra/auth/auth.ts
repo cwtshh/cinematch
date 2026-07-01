@@ -3,6 +3,7 @@ import { db } from "../database/client";
 import { env } from "@/main/env";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import * as authSchema from "@/infra/database/drizzle/schema/auth-schema";
+import { username } from "better-auth/plugins";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -15,6 +16,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
+  plugins: [username()],
   user: {
     additionalFields: {
       hasCompletedOnboarding: {
