@@ -14,15 +14,21 @@ class RecommendRequest(BaseModel):
     )
     preference_genres: list[str] = Field(
         default_factory=list,
-        description="slugs de genre.slug escolhidos em user_preference_genre",
+        description="slugs de genre.slug escolhidos em user_preference_genre. "
+        "Usado como filtro rígido no ranking (só entram filmes com pelo menos "
+        "um dos gêneros escolhidos).",
     )
     era: str | None = Field(
         default=None,
-        description="user_preference.era: 'antigos' | '80_90' | 'recentes' | None",
+        description="user_preference.era: 'antigos' | '80_90' | 'recentes' | None. "
+        "RESERVADO: aceito por compatibilidade, mas não é usado no ranking hoje "
+        "— o modelo atual não tem metadado de ano por filme. Reintroduzir o "
+        "filtro em Recommender.recommend quando esse dado existir.",
     )
     popularity: str | None = Field(
         default=None,
-        description="user_preference.popularity: 'populares' | 'nicho' | None",
+        description="user_preference.popularity: 'populares' | 'nicho' | None. "
+        "RESERVADO: mesma observação do campo 'era' — não usado no ranking hoje.",
     )
     already_watched_source_movie_ids: list[int] = Field(
         default_factory=list,
