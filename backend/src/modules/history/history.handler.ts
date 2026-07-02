@@ -10,8 +10,9 @@ import {
   movieGenre,
   recommendedFeed,
   recommendedFeedItem,
+  userWatchlist,
 } from "@/infra/database/drizzle/schema";
-import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
+import { searchFirstMovieByTitleWithFallback } from "@/infra/integrations/tmdb/tmdb.service";
 
 const PAGE_SIZE = 20;
 
@@ -28,9 +29,13 @@ type RawItem = {
   releaseYear: number | null;
   popularityBucket: string | null;
   feedGeneratedAt: Date;
+  tmdbTitle: string | null;
+  overview: string | null;
+  posterUrl: string | null;
+  backdropUrl: string | null;
 };
 
-async function enrichWithTmdbAndGenres(items: RawItem[]) {
+async function enrichWithTmdbAndGenres(items: RawItem[], watchlistIds: Set<string>) {
   if (items.length === 0) return [];
 
   const movieIds = [...new Set(items.map((item) => item.id))];
@@ -54,15 +59,33 @@ async function enrichWithTmdbAndGenres(items: RawItem[]) {
 
   return Promise.all(
     items.map(async (item) => {
-      let tmdbMovie = null;
-      try {
-        tmdbMovie = await searchFirstMovieByTitle({
-          title: item.title,
-          year: item.releaseYear ?? undefined,
-        });
-      } catch {
-        // continua sem poster
+      let tmdbData = {
+        tmdbTitle: item.tmdbTitle ?? null,
+        overview: item.overview ?? null,
+        posterUrl: item.posterUrl ?? null,
+        backdropUrl: item.backdropUrl ?? null,
+      };
+
+      if (!tmdbData.tmdbTitle && !tmdbData.overview && !tmdbData.posterUrl) {
+        try {
+          const tmdb = await searchFirstMovieByTitleWithFallback({
+            title: item.title,
+            year: item.releaseYear ?? undefined,
+          });
+          if (tmdb) {
+            tmdbData = {
+              tmdbTitle: tmdb.title ?? null,
+              overview: tmdb.overview ?? null,
+              posterUrl: tmdb.posterUrl ?? null,
+              backdropUrl: tmdb.backdropUrl ?? null,
+            };
+            db.update(movie).set(tmdbData).where(eq(movie.id, item.id)).catch(() => {});
+          }
+        } catch {
+          // continua sem dados TMDB
+        }
       }
+
       return {
         feedItemId: item.feedItemId,
         feedId: item.feedId,
@@ -74,12 +97,10 @@ async function enrichWithTmdbAndGenres(items: RawItem[]) {
         id: item.id,
         sourceMovieId: item.sourceMovieId,
         title: item.title,
+        ...tmdbData,
         releaseYear: item.releaseYear,
         popularityBucket: item.popularityBucket,
-        posterPath: tmdbMovie?.posterPath ?? null,
-        posterUrl: tmdbMovie?.posterUrl ?? null,
-        backdropPath: tmdbMovie?.backdropPath ?? null,
-        backdropUrl: tmdbMovie?.backdropUrl ?? null,
+        inWatchlist: watchlistIds.has(item.id),
         genres: genresByMovieId.get(item.id) ?? [],
       };
     }),
@@ -116,18 +137,44 @@ export async function getHistoryHandler(
     releaseYear: movie.releaseYear,
     popularityBucket: movie.popularityBucket,
     feedGeneratedAt: recommendedFeed.generatedAt,
+    tmdbTitle: movie.tmdbTitle,
+    overview: movie.overview,
+    posterUrl: movie.posterUrl,
+    backdropUrl: movie.backdropUrl,
   };
 
-  // ── Acessados: paginado por data de geração do feed ───────────────────────
-  const accessedRaw = await db
-    .select(baseSelect)
-    .from(recommendedFeedItem)
-    .innerJoin(recommendedFeed, eq(recommendedFeed.id, recommendedFeedItem.feedId))
-    .innerJoin(movie, eq(movie.id, recommendedFeedItem.movieId))
-    .where(eq(recommendedFeed.userId, userId))
-    .orderBy(desc(recommendedFeed.generatedAt), desc(recommendedFeedItem.ratedAt))
-    .limit(PAGE_SIZE + 1)
-    .offset(offset);
+  const [accessedRaw, ratedRaw, watchlistRows] = await Promise.all([
+    db
+      .select(baseSelect)
+      .from(recommendedFeedItem)
+      .innerJoin(recommendedFeed, eq(recommendedFeed.id, recommendedFeedItem.feedId))
+      .innerJoin(movie, eq(movie.id, recommendedFeedItem.movieId))
+      .where(eq(recommendedFeed.userId, userId))
+      .orderBy(desc(recommendedFeed.generatedAt), desc(recommendedFeedItem.ratedAt))
+      .limit(PAGE_SIZE + 1)
+      .offset(offset),
+
+    db
+      .select(baseSelect)
+      .from(recommendedFeedItem)
+      .innerJoin(recommendedFeed, eq(recommendedFeed.id, recommendedFeedItem.feedId))
+      .innerJoin(movie, eq(movie.id, recommendedFeedItem.movieId))
+      .where(
+        and(
+          eq(recommendedFeed.userId, userId),
+          eq(recommendedFeedItem.status, "rated"),
+        ),
+      )
+      .orderBy(desc(recommendedFeedItem.ratedAt))
+      .limit(200),
+
+    db
+      .select({ movieId: userWatchlist.movieId })
+      .from(userWatchlist)
+      .where(eq(userWatchlist.userId, userId)),
+  ]);
+
+  const watchlistIds = new Set(watchlistRows.map((r) => r.movieId));
 
   const hasMore = accessedRaw.length > PAGE_SIZE;
   const accessedPage = (hasMore ? accessedRaw.slice(0, PAGE_SIZE) : accessedRaw).sort((a, b) => {
@@ -136,25 +183,9 @@ export async function getHistoryHandler(
     return new Date(dateB).getTime() - new Date(dateA).getTime();
   });
 
-  // ── Avaliados: query separada sem paginação (todos os filmes avaliados) ───
-  const ratedRaw = await db
-    .select(baseSelect)
-    .from(recommendedFeedItem)
-    .innerJoin(recommendedFeed, eq(recommendedFeed.id, recommendedFeedItem.feedId))
-    .innerJoin(movie, eq(movie.id, recommendedFeedItem.movieId))
-    .where(
-      and(
-        eq(recommendedFeed.userId, userId),
-        eq(recommendedFeedItem.status, "rated"),
-      ),
-    )
-    .orderBy(desc(recommendedFeedItem.ratedAt))
-    .limit(200);
-
-  // ── Enriquecer com TMDB + gêneros em paralelo ─────────────────────────────
   const [accessed, rated] = await Promise.all([
-    enrichWithTmdbAndGenres(accessedPage),
-    enrichWithTmdbAndGenres(ratedRaw),
+    enrichWithTmdbAndGenres(accessedPage, watchlistIds),
+    enrichWithTmdbAndGenres(ratedRaw, watchlistIds),
   ]);
 
   return reply.status(200).send({ accessed, rated, hasMore, page });

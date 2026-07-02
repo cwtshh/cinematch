@@ -4,6 +4,7 @@ import {
   genre,
   movie,
   movieGenre,
+  userDismissedMovie,
   userMovieRating,
   userPreference,
   userPreferenceGenre,
@@ -44,14 +45,23 @@ export async function generateRecommendationsForUser({
   userId,
   nRecommendations = 10,
 }: GenerateRecommendationsForUserInput) {
-  const ratingsRows = await db
-    .select({
-      sourceMovieId: movie.sourceMovieId,
-      rating: userMovieRating.rating,
-    })
-    .from(userMovieRating)
-    .innerJoin(movie, eq(movie.id, userMovieRating.movieId))
-    .where(eq(userMovieRating.userId, userId));
+  const [ratingsRows, dismissedRows] = await Promise.all([
+    db
+      .select({
+        sourceMovieId: movie.sourceMovieId,
+        rating: userMovieRating.rating,
+        movieId: movie.id,
+      })
+      .from(userMovieRating)
+      .innerJoin(movie, eq(movie.id, userMovieRating.movieId))
+      .where(eq(userMovieRating.userId, userId)),
+
+    db
+      .select({ sourceMovieId: movie.sourceMovieId, movieId: userDismissedMovie.movieId })
+      .from(userDismissedMovie)
+      .innerJoin(movie, eq(movie.id, userDismissedMovie.movieId))
+      .where(eq(userDismissedMovie.userId, userId)),
+  ]);
 
   const [prefRow] = await db
     .select({
@@ -83,7 +93,10 @@ export async function generateRecommendationsForUser({
     preference_genres: [...preferredSlugs],
     era: mapEraToInference(prefRow?.era),
     popularity: mapPopularityToInference(prefRow?.popularity),
-    already_watched_source_movie_ids: ratingsRows.map((row) => row.sourceMovieId),
+    already_watched_source_movie_ids: [
+      ...ratingsRows.map((row) => row.sourceMovieId),
+      ...dismissedRows.map((row) => row.sourceMovieId),
+    ],
     n_recommendations: nRecommendations,
   };
 
@@ -180,8 +193,12 @@ export async function generateRecommendationsForUser({
   const excludeMovieIds = new Set([
     ...aiResults.map((m) => m.id),
     ...filtered.map((m) => m.id),
+    ...dismissedRows.map((r) => r.movieId),
   ]);
-  const excludeSourceIds = new Set(ratingsRows.map((r) => r.sourceMovieId));
+  const excludeSourceIds = new Set([
+    ...ratingsRows.map((r) => r.sourceMovieId),
+    ...dismissedRows.map((r) => r.sourceMovieId),
+  ]);
 
   const supplementConditions: SQL[] = [];
   if (preferredSlugs.size > 0) {

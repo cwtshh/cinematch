@@ -8,6 +8,10 @@ export const movie = pgTable("movie", {
   releaseYear: integer("release_year"),
   releaseDate: date("release_date"),
   popularityBucket: text("popularity_bucket"),
+  tmdbTitle: text("tmdb_title"),
+  overview: text("overview"),
+  posterUrl: text("poster_url"),
+  backdropUrl: text("backdrop_url"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

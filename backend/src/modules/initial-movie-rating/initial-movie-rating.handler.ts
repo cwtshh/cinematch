@@ -1,17 +1,10 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import {
-  and,
-  count,
-  eq,
-  inArray,
-  notInArray,
-  sql,
-  type SQL,
-} from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { fromNodeHeaders } from "better-auth/node";
 
 import { db } from "@/infra/database/client";
 import {
+  genre,
   movie,
   movieGenre,
   user,
@@ -26,7 +19,39 @@ import {
 } from "./initial-movie-rating.schema";
 import { auth } from "@/infra/auth/auth";
 import { generateAndSaveRecommendationsForUser } from "@/services/ai-inference-service/generate-and-save-recommendations";
-import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
+import { searchFirstMovieByTitleWithFallback } from "@/infra/integrations/tmdb/tmdb.service";
+
+const TARGET = 20;
+const PER_GENRE_POPULAR = 4;
+
+type MovieRow = {
+  id: string;
+  title: string;
+  releaseYear: number | null;
+  popularityBucket: string | null;
+  tmdbTitle: string | null;
+  overview: string | null;
+  posterUrl: string | null;
+  backdropUrl: string | null;
+};
+
+function buildEraConditions(era: string | null | undefined) {
+  if (era === "before-1980") return [sql`${movie.releaseYear} < 1980`];
+  if (era === "80s-90s") return [sql`${movie.releaseYear} >= 1980`, sql`${movie.releaseYear} <= 1999`];
+  if (era === "2000-plus") return [sql`${movie.releaseYear} >= 2000`];
+  return [];
+}
+
+const MOVIE_TMDB_SELECT = {
+  id: movie.id,
+  title: movie.title,
+  releaseYear: movie.releaseYear,
+  popularityBucket: movie.popularityBucket,
+  tmdbTitle: movie.tmdbTitle,
+  overview: movie.overview,
+  posterUrl: movie.posterUrl,
+  backdropUrl: movie.backdropUrl,
+} as const;
 
 export async function getMoviesToRateHandler(
   request: FastifyRequest,
@@ -46,102 +71,141 @@ export async function getMoviesToRateHandler(
   });
 
   const userId = session?.user.id;
-
-  if (!userId) {
-    return reply.status(401).send({
-      message: "Não autenticado.",
-    });
-  }
-
-  const limit = parsedQuery.data.limit;
+  if (!userId) return reply.status(401).send({ message: "Não autenticado." });
 
   const preference = await db.query.userPreference.findFirst({
     where: eq(userPreference.userId, userId),
   });
 
   const preferredGenres = await db
-    .select({
-      genreId: userPreferenceGenre.genreId,
-    })
+    .select({ genreId: userPreferenceGenre.genreId })
     .from(userPreferenceGenre)
     .where(eq(userPreferenceGenre.userId, userId));
 
   const ratedMovies = await db
-    .select({
-      movieId: userMovieRating.movieId,
-    })
+    .select({ movieId: userMovieRating.movieId })
     .from(userMovieRating)
     .where(eq(userMovieRating.userId, userId));
 
-  const preferredGenreIds = preferredGenres.map((item) => item.genreId);
-  const ratedMovieIds = ratedMovies.map((item) => item.movieId);
+  const preferredGenreIds = preferredGenres.map((g) => g.genreId);
+  const ratedMovieIds = ratedMovies.map((r) => r.movieId);
+  const eraConditions = buildEraConditions(preference?.era);
 
-  const filters: SQL[] = [];
+  // ── Fase 1: 4 filmes POPULARES por gênero preferido ──────────────────────
+  const selectedIds = new Set<string>();
+  const rows: MovieRow[] = [];
 
   if (preferredGenreIds.length > 0) {
-    filters.push(inArray(movieGenre.genreId, preferredGenreIds));
-  }
+    await Promise.all(
+      preferredGenreIds.map(async (genreId) => {
+        const conditions = [
+          eq(movieGenre.genreId, genreId),
+          eq(movie.popularityBucket, "popular"),
+          ...eraConditions,
+          ...(ratedMovieIds.length > 0 ? [notInArray(movie.id, ratedMovieIds)] : []),
+        ];
 
-  if (preference?.era === "before-1980") {
-    filters.push(sql`${movie.releaseYear} < 1980`);
-  }
+        const genreMovies = await db
+          .select(MOVIE_TMDB_SELECT)
+          .from(movie)
+          .innerJoin(movieGenre, eq(movieGenre.movieId, movie.id))
+          .where(and(...conditions))
+          .groupBy(
+            movie.id, movie.title, movie.releaseYear, movie.popularityBucket,
+            movie.tmdbTitle, movie.overview, movie.posterUrl, movie.backdropUrl,
+          )
+          .orderBy(sql`random()`)
+          .limit(PER_GENRE_POPULAR);
 
-  if (preference?.era === "80s-90s") {
-    filters.push(
-      and(
-        sql`${movie.releaseYear} >= 1980`,
-        sql`${movie.releaseYear} <= 1999`,
-      )!,
+        for (const m of genreMovies) {
+          if (!selectedIds.has(m.id)) {
+            selectedIds.add(m.id);
+            rows.push(m);
+          }
+        }
+      }),
     );
   }
 
-  if (preference?.era === "2000-plus") {
-    filters.push(sql`${movie.releaseYear} >= 2000`);
+  // ── Fase 2: complementa até TARGET com mais populares dos gêneros ─────────
+  if (rows.length < TARGET && preferredGenreIds.length > 0) {
+    const fillConditions = [
+      inArray(movieGenre.genreId, preferredGenreIds),
+      ...eraConditions,
+      ...(selectedIds.size > 0 ? [notInArray(movie.id, [...selectedIds])] : []),
+      ...(ratedMovieIds.length > 0 ? [notInArray(movie.id, ratedMovieIds)] : []),
+    ];
+
+    const fillMovies = await db
+      .select(MOVIE_TMDB_SELECT)
+      .from(movie)
+      .innerJoin(movieGenre, eq(movieGenre.movieId, movie.id))
+      .where(and(...fillConditions))
+      .groupBy(
+        movie.id, movie.title, movie.releaseYear, movie.popularityBucket,
+        movie.tmdbTitle, movie.overview, movie.posterUrl, movie.backdropUrl,
+      )
+      .orderBy(sql`(${movie.popularityBucket} = 'popular') desc`, sql`random()`)
+      .limit(TARGET - rows.length);
+
+    rows.push(...fillMovies);
   }
 
-  if (ratedMovieIds.length > 0) {
-    filters.push(notInArray(movie.id, ratedMovieIds));
+  // baralha para não agrupar por gênero na UI
+  rows.sort(() => Math.random() - 0.5);
+
+  // ── Busca gêneros de todos os filmes em uma query só ─────────────────────
+  const movieIds = rows.map((r) => r.id);
+  const genreRelations = movieIds.length > 0
+    ? await db
+        .select({ movieId: movieGenre.movieId, slug: genre.slug, label: genre.label })
+        .from(movieGenre)
+        .innerJoin(genre, eq(genre.id, movieGenre.genreId))
+        .where(inArray(movieGenre.movieId, movieIds))
+    : [];
+
+  const genresByMovieId = new Map<string, { slug: string; label: string }[]>();
+  for (const rel of genreRelations) {
+    const list = genresByMovieId.get(rel.movieId) ?? [];
+    list.push({ slug: rel.slug, label: rel.label });
+    genresByMovieId.set(rel.movieId, list);
   }
 
-  const rows = await db
-    .select({
-      id: movie.id,
-      title: movie.title,
-      releaseYear: movie.releaseYear,
-      popularityBucket: movie.popularityBucket,
-    })
-    .from(movie)
-    .innerJoin(movieGenre, eq(movieGenre.movieId, movie.id))
-    .where(filters.length > 0 ? and(...filters) : undefined)
-    .groupBy(movie.id, movie.title, movie.releaseYear, movie.popularityBucket)
-    .orderBy(sql`random()`)
-    .limit(limit);
+  // ── Enriquece com TMDB (usa cache do DB quando disponível) ───────────────
+  const items = await Promise.all(
+    rows.map(async (row) => {
+      let tmdbData = {
+        tmdbTitle: row.tmdbTitle ?? null,
+        overview: row.overview ?? null,
+        posterUrl: row.posterUrl ?? null,
+        backdropUrl: row.backdropUrl ?? null,
+      };
 
-  const TMDB_BATCH_SIZE = 3;
-  const items = [];
-  for (let i = 0; i < rows.length; i += TMDB_BATCH_SIZE) {
-    const batch = rows.slice(i, i + TMDB_BATCH_SIZE);
-    const enriched = await Promise.all(
-      batch.map(async (row) => {
-        let posterUrl: string | null = null;
+      if (!tmdbData.tmdbTitle && !tmdbData.overview && !tmdbData.posterUrl) {
         try {
-          const tmdb = await searchFirstMovieByTitle({
+          const tmdb = await searchFirstMovieByTitleWithFallback({
             title: row.title,
             year: row.releaseYear ?? undefined,
           });
-          posterUrl = tmdb?.posterUrl ?? null;
+          if (tmdb) {
+            tmdbData = {
+              tmdbTitle: tmdb.title ?? null,
+              overview: tmdb.overview ?? null,
+              posterUrl: tmdb.posterUrl ?? null,
+              backdropUrl: tmdb.backdropUrl ?? null,
+            };
+            db.update(movie).set(tmdbData).where(eq(movie.id, row.id)).catch(() => {});
+          }
         } catch {
-          request.log.warn(`TMDB falhou para "${row.title}", seguindo sem poster`);
+          // continua sem poster/sinopse
         }
-        return { ...row, posterUrl };
-      }),
-    );
-    items.push(...enriched);
-  }
+      }
 
-  return reply.status(200).send({
-    items,
-  });
+      return { ...row, ...tmdbData, genres: genresByMovieId.get(row.id) ?? [] };
+    }),
+  );
+
+  return reply.status(200).send({ items });
 }
 
 export async function submitInitialMovieRatingsHandler(

@@ -1,7 +1,7 @@
 import { and, eq, ilike, inArray, or } from "drizzle-orm";
 import { db } from "@/infra/database/client";
-import { genre, movie, movieGenre, userMovieRating } from "@/infra/database/drizzle/schema";
-import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
+import { genre, movie, movieGenre, userMovieRating, userWatchlist } from "@/infra/database/drizzle/schema";
+import { searchFirstMovieByTitleWithFallback } from "@/infra/integrations/tmdb/tmdb.service";
 
 const GENRE_TRANSLATION_MAP: Record<string, string> = {
   acao: "action",
@@ -51,7 +51,12 @@ export async function searchMoviesAction({
   const conditions = [];
 
   if (title && title.trim() !== "") {
-    conditions.push(ilike(movie.title, `%${title}%`));
+    conditions.push(
+      or(
+        ilike(movie.title, `%${title}%`),
+        ilike(movie.tmdbTitle, `%${title}%`),
+      ),
+    );
   }
 
   if (year) {
@@ -62,7 +67,7 @@ export async function searchMoviesAction({
     const normalizedInput = genreText
       .toLowerCase()
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
+      .replace(/[̀-ͯ]/g, "");
 
     const englishTerm =
       GENRE_TRANSLATION_MAP[normalizedInput] || normalizedInput;
@@ -87,63 +92,104 @@ export async function searchMoviesAction({
       title: movie.title,
       releaseYear: movie.releaseYear,
       popularityBucket: movie.popularityBucket,
+      tmdbTitle: movie.tmdbTitle,
+      overview: movie.overview,
+      posterUrl: movie.posterUrl,
+      backdropUrl: movie.backdropUrl,
     })
     .from(movie)
     .leftJoin(movieGenre, eq(movie.id, movieGenre.movieId))
     .leftJoin(genre, eq(movieGenre.genreId, genre.id))
     .where(and(...conditions))
-    .groupBy(movie.id)
+    .groupBy(
+      movie.id, movie.title, movie.releaseYear, movie.popularityBucket,
+      movie.tmdbTitle, movie.overview, movie.posterUrl, movie.backdropUrl,
+    )
     .limit(limit + 1)
     .offset(offset);
 
   const hasMore = rawResults.length > limit;
   const results = hasMore ? rawResults.slice(0, limit) : rawResults;
 
-  // busca avaliações do usuário para esses filmes (se autenticado)
   const movieIds = results.map((r) => r.id);
+
+  // busca avaliações e watchlist do usuário em paralelo
+  const [ratingRows, watchlistRows, genreRelations] = await Promise.all([
+    userId && movieIds.length > 0
+      ? db
+          .select({ movieId: userMovieRating.movieId, rating: userMovieRating.rating })
+          .from(userMovieRating)
+          .where(and(eq(userMovieRating.userId, userId), inArray(userMovieRating.movieId, movieIds)))
+      : Promise.resolve([]),
+
+    userId && movieIds.length > 0
+      ? db
+          .select({ movieId: userWatchlist.movieId })
+          .from(userWatchlist)
+          .where(and(eq(userWatchlist.userId, userId), inArray(userWatchlist.movieId, movieIds)))
+      : Promise.resolve([]),
+
+    movieIds.length > 0
+      ? db
+          .select({ movieId: movieGenre.movieId, slug: genre.slug, label: genre.label })
+          .from(movieGenre)
+          .innerJoin(genre, eq(movieGenre.genreId, genre.id))
+          .where(inArray(movieGenre.movieId, movieIds))
+      : Promise.resolve([]),
+  ]);
+
   const ratingByMovieId = new Map<string, number>();
-  if (userId && movieIds.length > 0) {
-    const ratings = await db
-      .select({ movieId: userMovieRating.movieId, rating: userMovieRating.rating })
-      .from(userMovieRating)
-      .where(and(eq(userMovieRating.userId, userId), inArray(userMovieRating.movieId, movieIds)));
-    for (const r of ratings) {
-      ratingByMovieId.set(r.movieId, Number(r.rating));
-    }
+  for (const r of ratingRows) {
+    ratingByMovieId.set(r.movieId, Number(r.rating));
   }
 
-  const TMDB_BATCH_SIZE = 3;
-  const enrichedResults = [];
+  const watchlistIds = new Set(watchlistRows.map((r) => r.movieId));
 
-  for (let i = 0; i < results.length; i += TMDB_BATCH_SIZE) {
-    const batch = results.slice(i, i + TMDB_BATCH_SIZE);
+  const genresByMovieId = new Map<string, { slug: string; label: string }[]>();
+  for (const rel of genreRelations) {
+    const list = genresByMovieId.get(rel.movieId) ?? [];
+    list.push({ slug: rel.slug, label: rel.label });
+    genresByMovieId.set(rel.movieId, list);
+  }
 
-    const batchResults = await Promise.all(
-      batch.map(async (item) => {
-        let tmdbMovie = null;
+  const enrichedResults = await Promise.all(
+    results.map(async (item) => {
+      let tmdbData = {
+        tmdbTitle: item.tmdbTitle ?? null,
+        overview: item.overview ?? null,
+        posterUrl: item.posterUrl ?? null,
+        backdropUrl: item.backdropUrl ?? null,
+      };
 
+      if (!tmdbData.tmdbTitle && !tmdbData.overview && !tmdbData.posterUrl) {
         try {
-          tmdbMovie = await searchFirstMovieByTitle({
+          const tmdb = await searchFirstMovieByTitleWithFallback({
             title: item.title,
             year: item.releaseYear ?? undefined,
           });
+          if (tmdb) {
+            tmdbData = {
+              tmdbTitle: tmdb.title ?? null,
+              overview: tmdb.overview ?? null,
+              posterUrl: tmdb.posterUrl ?? null,
+              backdropUrl: tmdb.backdropUrl ?? null,
+            };
+            db.update(movie).set(tmdbData).where(eq(movie.id, item.id)).catch(() => {});
+          }
         } catch {
-          tmdbMovie = null;
+          tmdbData = { tmdbTitle: null, overview: null, posterUrl: null, backdropUrl: null };
         }
+      }
 
-        return {
-          ...item,
-          posterPath: tmdbMovie?.posterPath ?? null,
-          posterUrl: tmdbMovie?.posterUrl ?? null,
-          backdropPath: tmdbMovie?.backdropPath ?? null,
-          backdropUrl: tmdbMovie?.backdropUrl ?? null,
-          userRating: ratingByMovieId.get(item.id) ?? null,
-        };
-      }),
-    );
-
-    enrichedResults.push(...batchResults);
-  }
+      return {
+        ...item,
+        ...tmdbData,
+        genres: genresByMovieId.get(item.id) ?? [],
+        userRating: ratingByMovieId.get(item.id) ?? null,
+        inWatchlist: watchlistIds.has(item.id),
+      };
+    }),
+  );
 
   return { movies: enrichedResults, hasMore };
 }

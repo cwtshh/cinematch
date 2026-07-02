@@ -11,6 +11,7 @@ import {
   recommendedFeedItem,
   userMovieRating,
 } from "@/infra/database/drizzle/schema";
+import { generateAndSaveRecommendationsForUser } from "@/services/ai-inference-service/generate-and-save-recommendations";
 
 const paramsSchema = z.object({
   movieId: z.string().uuid(),
@@ -81,6 +82,9 @@ export async function rateMovieHandler(
         );
     }
   }
+
+  // regenera feed em background para refletir nova avaliação
+  generateAndSaveRecommendationsForUser({ userId, nRecommendations: 20 }).catch(() => {});
 
   return reply.status(200).send({ movieId, rating });
 }

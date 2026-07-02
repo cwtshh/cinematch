@@ -8,3 +8,5 @@ export * from "./user-movie-rating";
 export * from "./movie-poster-map";
 export * from "./recommended-feed";
 export * from "./recommended-feed-item";
+export * from "./user-watchlist";
+export * from "./user-dismissed-movie";

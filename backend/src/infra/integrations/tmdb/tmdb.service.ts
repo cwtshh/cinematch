@@ -238,3 +238,24 @@ export async function searchFirstMovieByTitle({
 
   return results[0] ?? null;
 }
+
+export async function searchFirstMovieByTitleWithFallback({
+  title,
+  year,
+}: Omit<SearchMoviesByTitleInput, "page" | "language">): Promise<SearchMovieByTitleItem | null> {
+  const ptResult = await searchFirstMovieByTitle({ title, year, language: "pt-BR" });
+
+  if (ptResult?.overview) return ptResult;
+
+  // sinopse pt-BR vazia ou filme não encontrado → tenta en-US
+  try {
+    const enResult = await searchFirstMovieByTitle({ title, year, language: "en-US" });
+    if (!enResult) return ptResult ?? null;
+    // usa título/poster pt-BR (quando existia) mas overview en-US
+    return ptResult
+      ? { ...ptResult, overview: enResult.overview }
+      : enResult;
+  } catch {
+    return ptResult ?? null;
+  }
+}

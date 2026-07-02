@@ -10,6 +10,10 @@ import {
   movieGenre,
   recommendedFeed,
   recommendedFeedItem,
+  userPreference,
+  userPreferenceGenre,
+  userWatchlist,
+  userDismissedMovie,
 } from "@/infra/database/drizzle/schema";
 import {
   rateRecommendationBodySchema,
@@ -17,8 +21,45 @@ import {
   refreshRecommendationsBodySchema,
 } from "./recommendations.schema";
 import { rateRecommendation } from "./rate-recommendation";
-import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
+import { searchFirstMovieByTitleWithFallback } from "@/infra/integrations/tmdb/tmdb.service";
 import { generateAndSaveRecommendationsForUser } from "@/services/ai-inference-service/generate-and-save-recommendations";
+
+function buildExplanation(
+  movieGenres: Array<{ slug: string; label: string }>,
+  preferredSlugs: Set<string>,
+  releaseYear: number | null,
+  popularityBucket: string | null,
+  era: string | null,
+  popularity: string | null,
+): string {
+  const matchedGenres = movieGenres.filter((g) => preferredSlugs.has(g.slug));
+
+  if (matchedGenres.length > 0) {
+    const labels = matchedGenres.slice(0, 2).map((g) => g.label);
+    return `Baseado no seu interesse em ${labels.join(" e ")}`;
+  }
+
+  if (era && releaseYear) {
+    if (era === "before-1980" && releaseYear < 1980) {
+      return "Clássico do cinema que combina com seu gosto por filmes antigos";
+    }
+    if (era === "80s-90s" && releaseYear >= 1980 && releaseYear <= 1999) {
+      return "Da época que você curte: anos 80 e 90";
+    }
+    if (era === "2000-plus" && releaseYear >= 2000) {
+      return "Lançamento moderno compatível com suas preferências";
+    }
+  }
+
+  if (popularity === "popular" && popularityBucket === "popular") {
+    return "Um dos títulos mais populares do catálogo";
+  }
+  if (popularity === "hidden-gems" && popularityBucket === "hidden-gem") {
+    return "Uma joia escondida que poucas pessoas conhecem";
+  }
+
+  return "Recomendado com base nas suas avaliações";
+}
 
 export async function getActiveRecommendationsHandler(
   request: FastifyRequest,
@@ -61,6 +102,10 @@ export async function getActiveRecommendationsHandler(
       title: movie.title,
       releaseYear: movie.releaseYear,
       popularityBucket: movie.popularityBucket,
+      tmdbTitle: movie.tmdbTitle,
+      overview: movie.overview,
+      posterUrl: movie.posterUrl,
+      backdropUrl: movie.backdropUrl,
     })
     .from(recommendedFeedItem)
     .innerJoin(
@@ -75,9 +120,10 @@ export async function getActiveRecommendationsHandler(
 
   const movieIds = items.map((item) => item.id);
 
-  const genreRelations =
+  // Busca tudo em paralelo: gêneros, preferências do usuário, watchlist, dismissed
+  const [genreRelations, prefRow, genreRows, watchlistRows, dismissedRows] = await Promise.all([
     movieIds.length > 0
-      ? await db
+      ? db
           .select({
             movieId: movieGenre.movieId,
             slug: genre.slug,
@@ -86,7 +132,39 @@ export async function getActiveRecommendationsHandler(
           .from(movieGenre)
           .innerJoin(genre, eq(genre.id, movieGenre.genreId))
           .where(inArray(movieGenre.movieId, movieIds))
-      : [];
+      : Promise.resolve([]),
+
+    db
+      .select({ era: userPreference.era, popularity: userPreference.popularity })
+      .from(userPreference)
+      .where(eq(userPreference.userId, userId))
+      .limit(1),
+
+    db
+      .select({ slug: genre.slug })
+      .from(userPreferenceGenre)
+      .innerJoin(genre, eq(genre.id, userPreferenceGenre.genreId))
+      .where(eq(userPreferenceGenre.userId, userId)),
+
+    movieIds.length > 0
+      ? db
+          .select({ movieId: userWatchlist.movieId })
+          .from(userWatchlist)
+          .where(and(eq(userWatchlist.userId, userId), inArray(userWatchlist.movieId, movieIds)))
+      : Promise.resolve([]),
+
+    movieIds.length > 0
+      ? db
+          .select({ movieId: userDismissedMovie.movieId })
+          .from(userDismissedMovie)
+          .where(and(eq(userDismissedMovie.userId, userId), inArray(userDismissedMovie.movieId, movieIds)))
+      : Promise.resolve([]),
+  ]);
+
+  const pref = prefRow[0] ?? null;
+  const preferredSlugs = new Set(genreRows.map((r) => r.slug));
+  const watchlistIds = new Set(watchlistRows.map((r) => r.movieId));
+  const dismissedIds = new Set(dismissedRows.map((r) => r.movieId));
 
   const genresByMovieId = new Map<
     string,
@@ -95,40 +173,59 @@ export async function getActiveRecommendationsHandler(
 
   for (const relation of genreRelations) {
     const current = genresByMovieId.get(relation.movieId) ?? [];
-    current.push({
-      slug: relation.slug,
-      label: relation.label,
-    });
+    current.push({ slug: relation.slug, label: relation.label });
     genresByMovieId.set(relation.movieId, current);
   }
 
-  const TMDB_BATCH_SIZE = 3;
-  const enrichedItems = [];
-  for (let i = 0; i < items.length; i += TMDB_BATCH_SIZE) {
-    const batch = items.slice(i, i + TMDB_BATCH_SIZE);
-    const batchResults = await Promise.all(
-      batch.map(async (item) => {
-        let tmdbMovie = null;
+  const enrichedItems = await Promise.all(
+    items.map(async (item) => {
+      let tmdbData = {
+        tmdbTitle: item.tmdbTitle ?? null,
+        overview: item.overview ?? null,
+        posterUrl: item.posterUrl ?? null,
+        backdropUrl: item.backdropUrl ?? null,
+      };
+
+      if (!tmdbData.tmdbTitle && !tmdbData.overview && !tmdbData.posterUrl) {
         try {
-          tmdbMovie = await searchFirstMovieByTitle({
+          const tmdb = await searchFirstMovieByTitleWithFallback({
             title: item.title,
             year: item.releaseYear ?? undefined,
           });
+          if (tmdb) {
+            tmdbData = {
+              tmdbTitle: tmdb.title ?? null,
+              overview: tmdb.overview ?? null,
+              posterUrl: tmdb.posterUrl ?? null,
+              backdropUrl: tmdb.backdropUrl ?? null,
+            };
+            db.update(movie).set(tmdbData).where(eq(movie.id, item.id)).catch(() => {});
+          }
         } catch {
-          request.log.warn(`TMDB falhou para "${item.title}", seguindo sem poster`);
+          // continua sem dados TMDB
         }
-        return {
-          ...item,
-          posterPath: tmdbMovie?.posterPath ?? null,
-          posterUrl: tmdbMovie?.posterUrl ?? null,
-          backdropPath: tmdbMovie?.backdropPath ?? null,
-          backdropUrl: tmdbMovie?.backdropUrl ?? null,
-          genres: genresByMovieId.get(item.id) ?? [],
-        };
-      }),
-    );
-    enrichedItems.push(...batchResults);
-  }
+      }
+
+      const movieGenres = genresByMovieId.get(item.id) ?? [];
+      const explanation = buildExplanation(
+        movieGenres,
+        preferredSlugs,
+        item.releaseYear,
+        item.popularityBucket,
+        pref?.era ?? null,
+        pref?.popularity ?? null,
+      );
+
+      return {
+        ...item,
+        ...tmdbData,
+        genres: movieGenres,
+        explanation,
+        inWatchlist: watchlistIds.has(item.id),
+        isDismissed: dismissedIds.has(item.id),
+      };
+    }),
+  );
 
   return reply.status(200).send({
     feed,
@@ -180,6 +277,9 @@ export async function rateRecommendationHandler(
       message: "Item de recomendação não encontrado.",
     });
   }
+
+  // regenera feed em background para refletir nova avaliação
+  generateAndSaveRecommendationsForUser({ userId, nRecommendations: 20 }).catch(() => {});
 
   return reply.status(200).send({
     message: "Avaliação salva com sucesso.",
