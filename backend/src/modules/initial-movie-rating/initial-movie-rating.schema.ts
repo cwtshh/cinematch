@@ -12,7 +12,7 @@ export const submitInitialMovieRatingsBodySchema = z.object({
         rating: z.number().min(0).max(5),
       }),
     )
-    .min(1),
+    .min(0),
 });
 
 export type GetMoviesToRateQuery = z.infer<typeof getMoviesToRateQuerySchema>;

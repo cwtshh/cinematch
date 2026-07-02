@@ -1,6 +1,6 @@
-import { and, eq, ilike, or } from "drizzle-orm";
+import { and, eq, ilike, inArray, or } from "drizzle-orm";
 import { db } from "@/infra/database/client";
-import { genre, movie, movieGenre } from "@/infra/database/drizzle/schema";
+import { genre, movie, movieGenre, userMovieRating } from "@/infra/database/drizzle/schema";
 import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
 
 const GENRE_TRANSLATION_MAP: Record<string, string> = {
@@ -11,17 +11,23 @@ const GENRE_TRANSLATION_MAP: Record<string, string> = {
   crime: "crime",
   documentario: "documentary",
   drama: "drama",
-  familia: "family",
+  familia: "children",
+  criancas: "children",
+  infantil: "children",
   fantasia: "fantasy",
   historia: "history",
   terror: "horror",
-  musica: "music",
+  musica: "musical",
+  musical: "musical",
   misterio: "mystery",
   romance: "romance",
-  "ficcao cientifica": "science fiction",
+  "ficcao cientifica": "sci_fi",
+  ficcao: "sci_fi",
   suspense: "thriller",
   guerra: "war",
   faroeste: "western",
+  noir: "film_noir",
+  "filme noir": "film_noir",
 };
 
 type SearchParams = {
@@ -30,6 +36,7 @@ type SearchParams = {
   genreText?: string;
   page: number;
   limit: number;
+  userId?: string;
 };
 
 export async function searchMoviesAction({
@@ -38,6 +45,7 @@ export async function searchMoviesAction({
   genreText,
   page,
   limit,
+  userId,
 }: SearchParams) {
   const offset = (page - 1) * limit;
   const conditions = [];
@@ -69,10 +77,10 @@ export async function searchMoviesAction({
   }
 
   if (conditions.length === 0) {
-    return [];
+    return { movies: [], hasMore: false };
   }
 
-  const results = await db
+  const rawResults = await db
     .select({
       id: movie.id,
       sourceMovieId: movie.sourceMovieId,
@@ -85,8 +93,24 @@ export async function searchMoviesAction({
     .leftJoin(genre, eq(movieGenre.genreId, genre.id))
     .where(and(...conditions))
     .groupBy(movie.id)
-    .limit(limit)
+    .limit(limit + 1)
     .offset(offset);
+
+  const hasMore = rawResults.length > limit;
+  const results = hasMore ? rawResults.slice(0, limit) : rawResults;
+
+  // busca avaliações do usuário para esses filmes (se autenticado)
+  const movieIds = results.map((r) => r.id);
+  const ratingByMovieId = new Map<string, number>();
+  if (userId && movieIds.length > 0) {
+    const ratings = await db
+      .select({ movieId: userMovieRating.movieId, rating: userMovieRating.rating })
+      .from(userMovieRating)
+      .where(and(eq(userMovieRating.userId, userId), inArray(userMovieRating.movieId, movieIds)));
+    for (const r of ratings) {
+      ratingByMovieId.set(r.movieId, Number(r.rating));
+    }
+  }
 
   const TMDB_BATCH_SIZE = 3;
   const enrichedResults = [];
@@ -113,6 +137,7 @@ export async function searchMoviesAction({
           posterUrl: tmdbMovie?.posterUrl ?? null,
           backdropPath: tmdbMovie?.backdropPath ?? null,
           backdropUrl: tmdbMovie?.backdropUrl ?? null,
+          userRating: ratingByMovieId.get(item.id) ?? null,
         };
       }),
     );
@@ -120,5 +145,5 @@ export async function searchMoviesAction({
     enrichedResults.push(...batchResults);
   }
 
-  return enrichedResults;
+  return { movies: enrichedResults, hasMore };
 }

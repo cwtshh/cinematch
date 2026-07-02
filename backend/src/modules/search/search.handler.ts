@@ -1,4 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
+import { fromNodeHeaders } from "better-auth/node";
+import { auth } from "@/infra/auth/auth";
 import { searchMoviesQuerystringSchema } from "./search.schema";
 import { searchMoviesAction } from "./search-movies";
 
@@ -15,16 +17,18 @@ export async function searchMoviesHandler(
     });
   }
 
-  const { title, year, genreText, releaseDateStart, releaseDateEnd, page, limit } = parsed.data;
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
+  const userId = session?.user.id;
 
-  const movies = await searchMoviesAction({
+  const { title, year, genreText, page, limit } = parsed.data;
+
+  const { movies, hasMore } = await searchMoviesAction({
     title,
     year,
     genreText,
-    releaseDateStart,
-    releaseDateEnd,
     page,
     limit,
+    userId,
   });
 
   return reply.send({
@@ -33,6 +37,7 @@ export async function searchMoviesHandler(
       page,
       limit,
       count: movies.length,
+      hasMore,
     },
   });
 }
