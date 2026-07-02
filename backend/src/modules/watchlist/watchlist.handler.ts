@@ -9,6 +9,7 @@ import {
   genre,
   movie,
   movieGenre,
+  userMovieRating,
   userWatchlist,
 } from "@/infra/database/drizzle/schema";
 import { searchFirstMovieByTitleWithFallback } from "@/infra/integrations/tmdb/tmdb.service";
@@ -91,17 +92,28 @@ export async function getWatchlistHandler(
 
   const movieIds = watchlistRows.map((r) => r.id);
 
-  const genreRelations = await db
-    .select({ movieId: movieGenre.movieId, slug: genre.slug, label: genre.label })
-    .from(movieGenre)
-    .innerJoin(genre, eq(genre.id, movieGenre.genreId))
-    .where(inArray(movieGenre.movieId, movieIds));
+  const [genreRelations, ratingRows] = await Promise.all([
+    db
+      .select({ movieId: movieGenre.movieId, slug: genre.slug, label: genre.label })
+      .from(movieGenre)
+      .innerJoin(genre, eq(genre.id, movieGenre.genreId))
+      .where(inArray(movieGenre.movieId, movieIds)),
+    db
+      .select({ movieId: userMovieRating.movieId, rating: userMovieRating.rating })
+      .from(userMovieRating)
+      .where(and(eq(userMovieRating.userId, userId), inArray(userMovieRating.movieId, movieIds))),
+  ]);
 
   const genresByMovieId = new Map<string, { slug: string; label: string }[]>();
   for (const rel of genreRelations) {
     const list = genresByMovieId.get(rel.movieId) ?? [];
     list.push({ slug: rel.slug, label: rel.label });
     genresByMovieId.set(rel.movieId, list);
+  }
+
+  const ratingByMovieId = new Map<string, number>();
+  for (const r of ratingRows) {
+    ratingByMovieId.set(r.movieId, r.rating);
   }
 
   const items = await Promise.all(
@@ -141,6 +153,7 @@ export async function getWatchlistHandler(
         addedAt: row.addedAt,
         ...tmdbData,
         genres: genresByMovieId.get(row.id) ?? [],
+        userRating: ratingByMovieId.get(row.id) ?? null,
         inWatchlist: true,
       };
     }),

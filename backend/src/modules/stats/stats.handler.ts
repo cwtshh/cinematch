@@ -23,19 +23,16 @@ export async function getStatsHandler(
 
   const [totalRated, avgRating, ratingDist, topGenres, eraStats, watchlistCount, dismissedCount] =
     await Promise.all([
-      // total avaliados
       db
         .select({ count: count() })
         .from(userMovieRating)
         .where(eq(userMovieRating.userId, userId)),
 
-      // média
       db
         .select({ avg: avg(userMovieRating.rating) })
         .from(userMovieRating)
         .where(eq(userMovieRating.userId, userId)),
 
-      // distribuição 1-5
       db
         .select({
           rating: sql<number>`round(${userMovieRating.rating})`,
@@ -45,7 +42,6 @@ export async function getStatsHandler(
         .where(eq(userMovieRating.userId, userId))
         .groupBy(sql`round(${userMovieRating.rating})`),
 
-      // top gêneros (por qtd de avaliações)
       db
         .select({
           slug: genre.slug,
@@ -62,7 +58,6 @@ export async function getStatsHandler(
         .orderBy(sql`count(*) desc`)
         .limit(5),
 
-      // distribuição de eras
       db
         .select({
           era: sql<string>`case
@@ -86,10 +81,8 @@ export async function getStatsHandler(
           end`,
         ),
 
-      // watchlist count
       db.select({ count: count() }).from(userWatchlist).where(eq(userWatchlist.userId, userId)),
 
-      // dismissed count
       db.select({ count: count() }).from(userDismissedMovie).where(eq(userDismissedMovie.userId, userId)),
     ]);
 

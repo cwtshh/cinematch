@@ -278,9 +278,6 @@ export async function rateRecommendationHandler(
     });
   }
 
-  // regenera feed em background para refletir nova avaliação
-  generateAndSaveRecommendationsForUser({ userId, nRecommendations: 20 }).catch(() => {});
-
   return reply.status(200).send({
     message: "Avaliação salva com sucesso.",
     item,
