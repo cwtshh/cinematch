@@ -1,9 +1,14 @@
 export type SearchMovieItem = {
   id: string;
   title: string;
+  tmdbTitle?: string | null;
+  overview?: string | null;
   releaseYear: number | null;
   popularityBucket: string | null;
   posterUrl?: string | null;
+  genres?: { slug: string; label: string }[];
+  userRating?: number | null;
+  inWatchlist?: boolean;
 };
 
 export type SearchMoviesResponse = {
@@ -12,6 +17,7 @@ export type SearchMoviesResponse = {
     page: number;
     limit: number;
     count: number;
+    hasMore: boolean;
   };
 };
 

@@ -11,6 +11,8 @@ import { ForYou } from "../features/for-you/routes/ForYou";
 import { History } from "../features/history/routes/History";
 import { Search } from "../features/search/routes/Search";
 import { ProfilePage } from "../features/profile/routes/Profile";
+import { WatchlistPage } from "../features/watchlist/routes/Watchlist";
+import { StatsPage } from "../features/stats/routes/Stats";
 
 export const router = createBrowserRouter([
   {
@@ -40,11 +42,19 @@ export const router = createBrowserRouter([
               },
               {
                 path: "/search",
-                element:  <Search />,
+                element: <Search />,
               },
               {
                 path: "/historico",
                 element: <History />,
+              },
+              {
+                path: "/lista",
+                element: <WatchlistPage />,
+              },
+              {
+                path: "/estatisticas",
+                element: <StatsPage />,
               },
               {
                 path: "/profile",

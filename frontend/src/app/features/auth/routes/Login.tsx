@@ -17,7 +17,7 @@ export function Login() {
 
   const { data: session, refetch } = authClient.useSession();
 
-  const [email, setEmail] = useState<string>("");
+  const [identifier, setIdentifier] = useState<string>("");
   const [password, setPassword] = useState<string>("");
 
   const [errors, setErrors] = useState<FormErrors>({});
@@ -25,12 +25,14 @@ export function Login() {
   const [hasSubmittedSuccessfully, setHasSubmittedSuccessfully] =
     useState(false);
 
+  const isEmail = identifier.includes("@");
+
   const normalizedData = useMemo(
     () => ({
-      email: email.trim().toLowerCase(),
+      email: isEmail ? identifier.trim().toLowerCase() : identifier.trim(),
       password,
     }),
-    [email, password],
+    [identifier, password, isEmail],
   );
 
   const validationErrors = useMemo(
@@ -68,10 +70,15 @@ export function Login() {
     setIsSubmitting(true);
 
     try {
-      const result = await authClient.signIn.email({
-        email: normalizedData.email,
-        password: normalizedData.password,
-      });
+      const result = isEmail
+        ? await authClient.signIn.email({
+            email: normalizedData.email,
+            password: normalizedData.password,
+          })
+        : await authClient.signIn.username({
+            username: normalizedData.email,
+            password: normalizedData.password,
+          });
 
       if (result?.error) {
         const message = getAuthErrorMessage(result.error);
@@ -132,17 +139,17 @@ export function Login() {
               noValidate
             >
               <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
+                <FieldLabel htmlFor="identifier">Email ou usuário</FieldLabel>
                 <Input
-                  id="email"
-                  placeholder="email@email.com"
-                  type="email"
-                  value={email}
+                  id="identifier"
+                  placeholder="email@email.com ou seu usuário"
+                  type="text"
+                  value={identifier}
                   onChange={(e) => {
-                    setEmail(e.target.value);
+                    setIdentifier(e.target.value);
                     clearFieldError("email");
                   }}
-                  autoComplete="email"
+                  autoComplete="username"
                   aria-invalid={!!errors.email}
                 />
                 {errors.email && (

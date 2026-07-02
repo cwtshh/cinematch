@@ -1,5 +1,7 @@
 import { authClient } from "@/lib/auth-client";
 import {
+  BarChart3,
+  Bookmark,
   Clapperboard,
   Clock,
   Film,
@@ -14,6 +16,8 @@ const tabs = [
   { to: "/for-you", Icon: Film, label: "Para você", end: true },
   { to: "/search", Icon: Search, label: "Buscar" },
   { to: "/historico", Icon: Clock, label: "Histórico" },
+  { to: "/lista", Icon: Bookmark, label: "Minha Lista" },
+  { to: "/estatisticas", Icon: BarChart3, label: "Estatísticas" },
   { to: "/profile", Icon: User, label: "Perfil" },
 ];
 
@@ -32,7 +36,6 @@ export function Sidebar() {
               aria-hidden="true"
             />
           </div>
-
           <span className="text-lg font-black tracking-tight">CineMatch</span>
         </div>
       </div>

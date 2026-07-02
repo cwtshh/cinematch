@@ -16,6 +16,8 @@ export type HistoryItem = {
   id: string;
   sourceMovieId: number;
   title: string;
+  tmdbTitle: string | null;
+  overview: string | null;
   releaseYear: number | null;
   popularityBucket: string | null;
   posterPath: string | null;
@@ -23,9 +25,13 @@ export type HistoryItem = {
   backdropPath: string | null;
   backdropUrl: string | null;
   genres: HistoryItemGenre[];
+  inWatchlist?: boolean;
 };
 
 export type HistoryResponse = {
   accessed: HistoryItem[];
   rated: HistoryItem[];
+  hasMore: boolean;
+  page: number;
+  totalAccessed: number;
 };

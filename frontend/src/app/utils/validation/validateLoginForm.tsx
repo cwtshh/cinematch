@@ -10,12 +10,12 @@ export function validateLoginForm(data: {
 }): FormErrors {
   const errors: FormErrors = {};
 
-  const email = data.email.trim().toLowerCase();
+  const identifier = data.email.trim();
   const password = data.password;
 
-  if (!email) {
-    errors.email = "Informe seu email.";
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!identifier) {
+    errors.email = "Informe seu email ou nome de usuário.";
+  } else if (identifier.includes("@") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) {
     errors.email = "Informe um email válido.";
   }
 

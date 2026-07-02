@@ -32,6 +32,8 @@ export type RecommendationItem = {
   id: string;
   sourceMovieId: number;
   title: string;
+  tmdbTitle: string | null;
+  overview: string | null;
   releaseYear: number | null;
   popularityBucket: string | null;
   backdropPath: string | null;
@@ -39,6 +41,9 @@ export type RecommendationItem = {
   posterUrl: string | null;
   posterPath: string | null;
   backdropUrl: string | null;
+  explanation?: string | null;
+  inWatchlist?: boolean;
+  isDismissed?: boolean;
 };
 
 export type ActiveRecommendationsResponse = {

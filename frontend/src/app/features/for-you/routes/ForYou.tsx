@@ -6,6 +6,7 @@ import type {
   RecommendationItem,
 } from "../types/recommendation";
 import { apiClient } from "@/lib/axios";
+import { getGenreLabel } from "@/lib/genre-labels";
 
 type ApiErrorResponse = {
   message?: string;
@@ -32,20 +33,16 @@ export function ForYou() {
 
   async function loadRecommendations(options?: { silent?: boolean }) {
     const silent = options?.silent ?? false;
-
     try {
       if (silent) {
         setIsRefreshing(true);
       } else {
         setIsLoading(true);
       }
-
       setError(null);
-
       const { data } = await apiClient.get<ActiveRecommendationsResponse>(
         "/recommendations/active",
       );
-
       setData(data);
       setItems(data.items);
     } catch (error) {
@@ -57,22 +54,14 @@ export function ForYou() {
   }
 
   async function handleRefreshRecommendations() {
-    if (!canRefreshRecommendations || isRefreshing) {
-      return;
-    }
-
+    if (!canRefreshRecommendations || isRefreshing) return;
     try {
       setIsRefreshing(true);
       setError(null);
-
-      await apiClient.post("/recommendations/refresh", {
-        limit: 20,
-      });
-
+      await apiClient.post("/recommendations/refresh", { limit: 20 });
       const { data } = await apiClient.get<ActiveRecommendationsResponse>(
         "/recommendations/active",
       );
-
       setData(data);
       setItems(data.items);
     } catch (error) {
@@ -86,39 +75,22 @@ export function ForYou() {
     try {
       setIsSubmittingRating(true);
       setError(null);
-
-      await apiClient.post(`/recommendations/${feedItemId}/rate`, {
-        rating,
-      });
-
+      await apiClient.post(`/recommendations/${feedItemId}/rate`, { rating });
       const ratedAt = new Date().toISOString();
-
-      setItems((currentItems) =>
-        currentItems.map((movie) =>
+      setItems((curr) =>
+        curr.map((movie) =>
           movie.feedItemId === feedItemId
-            ? {
-                ...movie,
-                userRating: rating,
-                status: "rated",
-                ratedAt,
-              }
+            ? { ...movie, userRating: rating, status: "rated", ratedAt }
             : movie,
         ),
       );
-
-      setData((currentData) => {
-        if (!currentData) return currentData;
-
+      setData((curr) => {
+        if (!curr) return curr;
         return {
-          ...currentData,
-          items: currentData.items.map((movie) =>
+          ...curr,
+          items: curr.items.map((movie) =>
             movie.feedItemId === feedItemId
-              ? {
-                  ...movie,
-                  userRating: rating,
-                  status: "rated",
-                  ratedAt,
-                }
+              ? { ...movie, userRating: rating, status: "rated", ratedAt }
               : movie,
           ),
         };
@@ -130,19 +102,37 @@ export function ForYou() {
     }
   }
 
+  async function handleUnrateMovie(movieId: string) {
+    try {
+      await apiClient.delete(`/movies/${movieId}/rate`);
+      const reset = (m: RecommendationItem) =>
+        m.id === movieId ? { ...m, userRating: null, status: "pending" as const, ratedAt: null } : m;
+      setItems((curr) => curr.map(reset));
+      setData((curr) => curr ? { ...curr, items: curr.items.map(reset) } : curr);
+    } catch {
+      // mantém estado atual se falhar
+    }
+  }
+
+  async function handleDismissMovie(movieId: string) {
+    try {
+      await apiClient.post(`/dismissed/${movieId}`);
+      setItems((curr) => curr.filter((m) => m.id !== movieId));
+    } catch {
+      // falha silenciosa — não remover o card se der erro
+    }
+  }
+
   useEffect(() => {
     loadRecommendations();
   }, []);
 
-  const ratedMoviesCount = useMemo(() => {
-    return items.filter((movie) => (movie.userRating ?? 0) > 0).length;
-  }, [items]);
-
-  const remainingRatingsToRefresh = Math.max(
-    MIN_RATED_TO_REFRESH - ratedMoviesCount,
-    0,
+  const ratedMoviesCount = useMemo(
+    () => items.filter((movie) => (movie.userRating ?? 0) > 0).length,
+    [items],
   );
 
+  const remainingRatingsToRefresh = Math.max(MIN_RATED_TO_REFRESH - ratedMoviesCount, 0);
   const canRefreshRecommendations = ratedMoviesCount >= MIN_RATED_TO_REFRESH;
 
   if (isLoading) {
@@ -152,23 +142,9 @@ export function ForYou() {
           <div className="h-8 w-40 animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
           <div className="h-5 w-96 max-w-full animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
         </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 10 }).map((_, index) => (
-            <div
-              key={index}
-              className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
-            >
-              <div className="aspect-[2/3] animate-pulse bg-zinc-200 dark:bg-zinc-800" />
-              <div className="space-y-3 p-4">
-                <div className="h-5 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-                <div className="h-4 w-1/2 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-                <div className="flex gap-2">
-                  <div className="h-6 w-16 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-800" />
-                  <div className="h-6 w-20 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-800" />
-                </div>
-              </div>
-            </div>
+            <div key={index} className="aspect-[2/3] w-full animate-pulse rounded-2xl bg-zinc-200 dark:bg-zinc-800" />
           ))}
         </div>
       </div>
@@ -181,9 +157,7 @@ export function ForYou() {
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
           Não foi possível carregar suas recomendações
         </h1>
-
         <p className="max-w-xl text-zinc-600 dark:text-zinc-400">{error}</p>
-
         <button
           onClick={() => loadRecommendations()}
           className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
@@ -200,10 +174,8 @@ export function ForYou() {
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
           Nenhuma recomendação ainda
         </h1>
-
         <p className="max-w-xl text-zinc-600 dark:text-zinc-400">
-          Avalie mais alguns filmes e volte aqui para ver recomendações mais
-          personalizadas.
+          Avalie mais alguns filmes e volte aqui para ver recomendações mais personalizadas.
         </p>
       </div>
     );
@@ -216,7 +188,6 @@ export function ForYou() {
           <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
             Para Você
           </h1>
-
           <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
             Filmes recomendados com base nas suas preferências e avaliações.
           </p>
@@ -228,16 +199,13 @@ export function ForYou() {
             disabled={isRefreshing || !canRefreshRecommendations}
             className="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
-            {isRefreshing
-              ? "Gerando mais filmes..."
-              : "Quero mais recomendações"}
+            {isRefreshing ? "Gerando mais filmes..." : "Quero mais recomendações"}
           </button>
 
           {!canRefreshRecommendations && (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Avalie mais {remainingRatingsToRefresh}{" "}
-              {remainingRatingsToRefresh === 1 ? "filme" : "filmes"} para
-              liberar novas recomendações.
+              {remainingRatingsToRefresh === 1 ? "filme" : "filmes"} para liberar novas recomendações.
             </p>
           )}
 
@@ -262,35 +230,33 @@ export function ForYou() {
               key={genre}
               className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
             >
-              {genre}
+              {getGenreLabel(genre, genre)}
             </span>
           ))}
-
           {data.feed.context.era && (
             <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
               Era: {data.feed.context.era}
             </span>
           )}
-
           {data.feed.context.popularity && (
             <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
               Popularidade: {data.feed.context.popularity}
             </span>
           )}
-
           <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-            Avaliados: {ratedMoviesCount}/{MIN_RATED_TO_REFRESH} para liberar
-            mais
+            Avaliados: {ratedMoviesCount}/{MIN_RATED_TO_REFRESH} para liberar mais
           </span>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {items.map((movie) => (
           <RecommendedMovieCard
             key={movie.feedItemId}
             movie={movie}
             onRate={handleRateMovie}
+            onUnrate={handleUnrateMovie}
+            onDismiss={handleDismissMovie}
             isSubmittingRating={isSubmittingRating}
           />
         ))}

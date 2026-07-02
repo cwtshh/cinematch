@@ -184,21 +184,193 @@ Solicita a geração de um novo feed de recomendações.
 
 ---
 
-## Histórico
+## Avaliação Direta de Filmes
 
-### GET `/history`
-Retorna o histórico de filmes do usuário, limitado aos 200 registros mais recentes.
+Permite avaliar ou desavaliar qualquer filme pelo seu `id`, independente do feed.
+
+### POST `/movies/:movieId/rate`
+Salva ou atualiza a avaliação do usuário para um filme.
+
+**Parâmetros de rota:**
+- `movieId` (UUID): identificador do filme
+
+**Corpo:**
+```json
+{ "rating": 4 }
+```
+A nota deve ser um inteiro entre 1 e 5.
+
+**Resposta (200):**
+```json
+{ "movieId": "uuid", "rating": 4 }
+```
+
+### DELETE `/movies/:movieId/rate`
+Remove a avaliação do usuário para um filme. Também reseta os feedItems do filme para `status: "pending"`.
+
+**Parâmetros de rota:**
+- `movieId` (UUID): identificador do filme
+
+**Resposta (200):**
+```json
+{ "movieId": "uuid", "rating": null }
+```
+
+---
+
+## Filmes Descartados
+
+Filmes descartados não aparecem em novos feeds e ficam registrados no histórico (Acessados) com status `"dismissed"`. Descartar um filme também remove a avaliação existente (ação prioritária).
+
+### POST `/dismissed/:movieId`
+Descarta um filme. Remove a avaliação caso exista e reseta todos os feedItems do filme para `status: "dismissed"`.
+
+**Parâmetros de rota:**
+- `movieId` (UUID): identificador do filme
+
+**Resposta (200):**
+```json
+{ "movieId": "uuid", "dismissed": true }
+```
+
+### DELETE `/dismissed/:movieId`
+Desfaz o descarte de um filme.
+
+**Resposta (200):**
+```json
+{ "movieId": "uuid", "dismissed": false }
+```
+
+### GET `/dismissed`
+Retorna todos os filmes descartados pelo usuário.
 
 **Resposta (200):**
 ```json
 {
-  "accessed": [ { "title": "...", "posterUrl": "...", "genres": [...] } ],
-  "rated": [ { "title": "...", "userRating": 4, "ratedAt": "..." } ]
+  "dismissed": [
+    { "movieId": "uuid", "dismissedAt": "2025-01-01T00:00:00.000Z" }
+  ]
 }
 ```
 
-- `accessed`: todos os itens recebidos em feeds (ordem decrescente por data do feed)
-- `rated`: apenas os itens com avaliação registrada (ordem decrescente por data de avaliação)
+---
+
+## Watchlist
+
+### POST `/watchlist/:movieId`
+Adiciona um filme à lista do usuário.
+
+**Resposta (200):**
+```json
+{ "movieId": "uuid", "inWatchlist": true }
+```
+
+### DELETE `/watchlist/:movieId`
+Remove um filme da lista do usuário.
+
+**Resposta (200):**
+```json
+{ "movieId": "uuid", "inWatchlist": false }
+```
+
+### GET `/watchlist`
+Retorna a lista de filmes salvos pelo usuário, incluindo a avaliação atual de cada um.
+
+**Resposta (200):**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "title": "Nome do Filme",
+      "posterUrl": "https://...",
+      "userRating": 4,
+      "genres": [{ "slug": "action", "label": "Ação" }]
+    }
+  ]
+}
+```
+
+---
+
+## Estatísticas
+
+### GET `/stats`
+Retorna estatísticas das avaliações do usuário. Usa `user_movie_rating` como fonte canônica (mesmo conjunto que "Avaliados" no histórico).
+
+**Resposta (200):**
+```json
+{
+  "totalRated": 14,
+  "avgRating": 3.57,
+  "ratingDistribution": { "1": 1, "2": 2, "3": 4, "4": 5, "5": 2 },
+  "topGenres": [
+    { "slug": "action", "label": "Ação", "count": 6, "avgRating": 4.0 }
+  ],
+  "eraStats": [
+    { "era": "Anos 2000+", "count": 8, "avgRating": 3.75 }
+  ],
+  "watchlistCount": 5,
+  "dismissedCount": 3
+}
+```
+
+---
+
+## Histórico
+
+### GET `/history`
+Retorna o histórico de interações do usuário com filmes, paginado.
+
+**Parâmetros de consulta:**
+
+| Parâmetro | Tipo   | Padrão | Descrição        |
+|-----------|--------|--------|------------------|
+| `page`    | number | 1      | Página (20 itens por vez) |
+
+**Fontes de dados para "Acessados"** (union deduplicada, ordenada pela interação mais recente):
+- Filmes recebidos em feeds de recomendação
+- Filmes avaliados (via `/movies/:id/rate`)
+- Filmes salvos na watchlist
+- Filmes descartados
+
+**Regras de prioridade de status** (dentro de "Acessados"):
+1. `"dismissed"` — sobrescreve qualquer outro status
+2. `"rated"` — sobrescreve `"pending"`
+3. `"pending"` — status padrão para interações sem avaliação
+
+**Resposta (200):**
+```json
+{
+  "accessed": [
+    {
+      "feedItemId": "uuid",
+      "feedId": "uuid",
+      "rank": 1,
+      "id": "uuid",
+      "title": "Nome do Filme",
+      "status": "rated",
+      "userRating": 4,
+      "ratedAt": "2025-01-02T00:00:00.000Z",
+      "accessedAt": "2025-01-01T00:00:00.000Z",
+      "posterUrl": "https://...",
+      "genres": [{ "slug": "action", "label": "Ação" }],
+      "inWatchlist": false
+    }
+  ],
+  "rated": [
+    { "id": "uuid", "title": "...", "userRating": 4, "ratedAt": "..." }
+  ],
+  "hasMore": true,
+  "page": 1,
+  "totalAccessed": 47
+}
+```
+
+- `accessed`: página atual de todos os filmes com que o usuário interagiu (20 por página)
+- `rated`: **todos** os filmes avaliados (sem paginação), excluindo descartados
+- `totalAccessed`: contagem total de filmes únicos acessados (para exibir no badge da aba)
+- `hasMore`: indica se há mais páginas em "Acessados"
 
 ---
 

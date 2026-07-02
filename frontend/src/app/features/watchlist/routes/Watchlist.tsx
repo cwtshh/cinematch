@@ -1,36 +1,58 @@
-import { useState } from "react";
-import { Bookmark, Clapperboard, Star, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Bookmark, Clapperboard, Star, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getGenreLabel } from "@/lib/genre-labels";
+import { rateMovie } from "@/lib/rate-movie";
+import { apiClient } from "@/lib/axios";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { rateMovie } from "@/lib/rate-movie";
-import { apiClient } from "@/lib/axios";
-import type { SearchMovieItem } from "../types/Search";
 
-type MovieCardProps = {
-  movie: SearchMovieItem;
-  onDismiss?: (movieId: string) => void;
+type WatchlistItem = {
+  id: string;
+  title: string;
+  tmdbTitle: string | null;
+  overview: string | null;
+  releaseYear: number | null;
+  popularityBucket: string | null;
+  posterUrl: string | null;
+  backdropUrl: string | null;
+  addedAt: string;
+  genres: { slug: string; label: string }[];
+  userRating: number | null;
+  inWatchlist: boolean;
 };
+
+type WatchlistResponse = { items: WatchlistItem[] };
 
 const STAR_VALUES = [1, 2, 3, 4, 5];
 
-export function MovieCard({ movie, onDismiss }: MovieCardProps) {
+function WatchlistCard({ item, onRemove }: { item: WatchlistItem; onRemove: (id: string) => void }) {
   const [imageError, setImageError] = useState(false);
-  const [rating, setRating] = useState<number | null>(movie.userRating ?? null);
-  const [isSaving, setIsSaving] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [inWatchlist, setInWatchlist] = useState(movie.inWatchlist ?? false);
-  const [isTogglingWatchlist, setIsTogglingWatchlist] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [rating, setRating] = useState<number | null>(item.userRating);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const displayTitle = movie.tmdbTitle ?? movie.title;
-  const isRated = (rating ?? 0) > 0;
-  const showPoster = Boolean(movie.posterUrl) && !imageError;
-  const genres = movie.genres ?? [];
+  const displayTitle = item.tmdbTitle ?? item.title;
+  const showPoster = Boolean(item.posterUrl) && !imageError;
+  const currentRating = rating ?? 0;
+  const isRated = currentRating > 0;
+
+  async function handleRemove(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (isRemoving) return;
+    setIsRemoving(true);
+    try {
+      await apiClient.delete(`/watchlist/${item.id}`);
+      onRemove(item.id);
+    } catch {
+      setIsRemoving(false);
+    }
+  }
 
   async function handleRate(value: number) {
     if (isSaving) return;
@@ -40,9 +62,9 @@ export function MovieCard({ movie, onDismiss }: MovieCardProps) {
     setRating(newRating);
     try {
       if (newRating !== null) {
-        await rateMovie(movie.id, newRating);
+        await rateMovie(item.id, newRating);
       } else {
-        await apiClient.delete(`/movies/${movie.id}/rate`);
+        await apiClient.delete(`/movies/${item.id}/rate`);
       }
     } catch {
       setRating(prev);
@@ -51,68 +73,25 @@ export function MovieCard({ movie, onDismiss }: MovieCardProps) {
     }
   }
 
-  async function handleToggleWatchlist(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (isTogglingWatchlist) return;
-    setIsTogglingWatchlist(true);
-    const next = !inWatchlist;
-    setInWatchlist(next);
-    try {
-      if (next) {
-        await apiClient.post(`/watchlist/${movie.id}`);
-      } else {
-        await apiClient.delete(`/watchlist/${movie.id}`);
-      }
-    } catch {
-      setInWatchlist(!next);
-    } finally {
-      setIsTogglingWatchlist(false);
-    }
-  }
-
-  const currentRating = rating ?? 0;
-
-  function handleDismiss(e: React.MouseEvent) {
-    e.stopPropagation();
-    onDismiss?.(movie.id);
-  }
-
   return (
     <>
       {/* Wrapper externo: âncora para posicionamento dos botões flutuantes */}
       <div className="group relative">
-        {/* Botão descartar — fora do contexto 3D */}
-        {onDismiss && (
-          <button
-            type="button"
-            onClick={handleDismiss}
-            title="Não tenho interesse"
-            className="absolute left-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-zinc-400 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-black/80 hover:text-white"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-
         {/* Bookmark fora do contexto 3D — sempre clicável no hover */}
         <button
           type="button"
-          onClick={handleToggleWatchlist}
-          title={inWatchlist ? "Remover da lista" : "Adicionar à lista"}
-          className={cn(
-            "absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 transition-all duration-200 group-hover:opacity-100 hover:bg-black/80",
-            inWatchlist
-              ? "text-yellow-400 opacity-100"
-              : "text-zinc-400 opacity-0 hover:text-white",
-          )}
+          onClick={handleRemove}
+          title="Remover da lista"
+          disabled={isRemoving}
+          className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-yellow-400 opacity-100 transition-all hover:bg-black/80 hover:text-red-400 disabled:opacity-60"
         >
-          <Bookmark className={cn("h-3.5 w-3.5", inWatchlist && "fill-yellow-400")} />
+          <Bookmark className="h-3.5 w-3.5 fill-yellow-400" />
         </button>
 
         {/* Perspectiva como filho, não como wrapper dos botões */}
         <div className="[perspective:1000px]">
           <div className="relative aspect-[2/3] w-full transition-transform duration-500 [transform-style:preserve-3d] group-hover:[transform:rotateY(180deg)]">
-
-            {/* ── FRENTE ─────────────────────────────────────────────── */}
+            {/* FRENTE */}
             <div
               className={cn(
                 "absolute inset-0 overflow-hidden rounded-2xl [backface-visibility:hidden]",
@@ -121,24 +100,22 @@ export function MovieCard({ movie, onDismiss }: MovieCardProps) {
             >
               {showPoster ? (
                 <img
-                  src={movie.posterUrl ?? undefined}
-                  alt={`Poster de ${displayTitle}`}
+                  src={item.posterUrl ?? undefined}
+                  alt={displayTitle}
                   className="h-full w-full object-cover"
                   loading="lazy"
                   onError={() => setImageError(true)}
                 />
               ) : (
-                <div className="flex h-full w-full items-center justify-center bg-zinc-100 px-4 text-center dark:bg-zinc-800">
+                <div className="flex h-full w-full items-center justify-center bg-zinc-100 dark:bg-zinc-800">
                   <Clapperboard className="h-10 w-10 text-zinc-400 dark:text-zinc-600" />
                 </div>
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-3">
-                <p className="line-clamp-2 text-sm font-semibold leading-snug text-white">
-                  {displayTitle}
-                </p>
-                {movie.releaseYear && (
-                  <p className="mt-0.5 text-xs text-zinc-400">{movie.releaseYear}</p>
+                <p className="line-clamp-2 text-sm font-semibold leading-snug text-white">{displayTitle}</p>
+                {item.releaseYear && (
+                  <p className="mt-0.5 text-xs text-zinc-400">{item.releaseYear}</p>
                 )}
                 {isRated && (
                   <div className="mt-1.5 flex items-center gap-0.5">
@@ -156,29 +133,22 @@ export function MovieCard({ movie, onDismiss }: MovieCardProps) {
               </div>
             </div>
 
-            {/* ── VERSO ──────────────────────────────────────────────── */}
+            {/* VERSO */}
             <div className="absolute inset-0 flex flex-col gap-3 overflow-hidden rounded-2xl bg-zinc-900 p-4 [backface-visibility:hidden] [transform:rotateY(180deg)] ring-1 ring-zinc-700">
               <div className="min-h-0 flex-1 overflow-hidden">
-                <p className="mb-2 line-clamp-2 text-sm font-semibold leading-snug text-white">
-                  {displayTitle}
-                </p>
-                {genres.length > 0 && (
+                <p className="mb-2 line-clamp-2 text-sm font-semibold leading-snug text-white">{displayTitle}</p>
+                {item.genres.length > 0 && (
                   <div className="mb-2 flex flex-wrap gap-1">
-                    {genres.slice(0, 3).map((g) => (
-                      <span
-                        key={g.slug}
-                        className="inline-flex items-center rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300"
-                      >
+                    {item.genres.slice(0, 3).map((g) => (
+                      <span key={g.slug} className="inline-flex items-center rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
                         {getGenreLabel(g.slug, g.label)}
                       </span>
                     ))}
                   </div>
                 )}
-                {movie.overview ? (
+                {item.overview ? (
                   <div>
-                    <p className="line-clamp-4 text-xs leading-relaxed text-zinc-400">
-                      {movie.overview}
-                    </p>
+                    <p className="line-clamp-3 text-xs leading-relaxed text-zinc-400">{item.overview}</p>
                     <button
                       type="button"
                       onClick={() => setDialogOpen(true)}
@@ -219,6 +189,16 @@ export function MovieCard({ movie, onDismiss }: MovieCardProps) {
                   })}
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={handleRemove}
+                disabled={isRemoving}
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-400 transition-colors hover:border-red-500/50 hover:text-red-400 disabled:opacity-60"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Remover da lista
+              </button>
             </div>
           </div>
         </div>
@@ -231,27 +211,18 @@ export function MovieCard({ movie, onDismiss }: MovieCardProps) {
           </DialogHeader>
           <div className="flex gap-4">
             {showPoster && (
-              <img
-                src={movie.posterUrl ?? undefined}
-                alt={displayTitle}
-                className="h-40 w-28 flex-shrink-0 rounded-xl object-cover"
-              />
+              <img src={item.posterUrl ?? undefined} alt={displayTitle} className="h-40 w-28 flex-shrink-0 rounded-xl object-cover" />
             )}
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                {movie.releaseYear && (
-                  <span className="text-sm text-muted-foreground">{movie.releaseYear}</span>
-                )}
-                {genres.map((g) => (
-                  <span
-                    key={g.slug}
-                    className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                  >
+                {item.releaseYear && <span className="text-sm text-muted-foreground">{item.releaseYear}</span>}
+                {item.genres.map((g) => (
+                  <span key={g.slug} className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                     {getGenreLabel(g.slug, g.label)}
                   </span>
                 ))}
               </div>
-              <p className="text-sm leading-relaxed text-muted-foreground">{movie.overview}</p>
+              <p className="text-sm leading-relaxed text-muted-foreground">{item.overview}</p>
             </div>
           </div>
           <div className="border-t border-border pt-4">
@@ -283,5 +254,70 @@ export function MovieCard({ movie, onDismiss }: MovieCardProps) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+export function WatchlistPage() {
+  const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const { data } = await apiClient.get<WatchlistResponse>("/watchlist");
+        setItems(data.items);
+      } catch {
+        setError("Não foi possível carregar sua lista.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  function handleRemove(movieId: string) {
+    setItems((curr) => curr.filter((m) => m.id !== movieId));
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+          Minha Lista
+        </h1>
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          Filmes que você quer assistir mais tarde.
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="aspect-[2/3] w-full animate-pulse rounded-2xl bg-zinc-200 dark:bg-zinc-800" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 text-center">
+          <Bookmark className="h-12 w-12 text-zinc-300 dark:text-zinc-700" />
+          <p className="text-base font-medium text-zinc-500">Sua lista está vazia.</p>
+          <p className="text-sm text-zinc-400">
+            Passe o mouse sobre um filme e clique no marcador para salvá-lo aqui.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {items.map((item) => (
+            <WatchlistCard key={item.id} item={item} onRemove={handleRemove} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

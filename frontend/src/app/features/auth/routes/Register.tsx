@@ -158,6 +158,9 @@ export function Register() {
                   autoComplete="username"
                   aria-invalid={!!errors.username}
                 />
+                <p className="mt-1 text-xs text-[#8A8FA8] font-inter">
+                  3–20 caracteres. Letras minúsculas, números e _ (underscore).
+                </p>
                 {errors.username && (
                   <p className="mt-1 text-sm text-red-400 font-inter">
                     {errors.username}
@@ -200,6 +203,9 @@ export function Register() {
                   autoComplete="new-password"
                   aria-invalid={!!errors.password}
                 />
+                <p className="mt-1 text-xs text-[#8A8FA8] font-inter">
+                  Mínimo 8 caracteres, com pelo menos uma letra e um número.
+                </p>
                 {errors.password && (
                   <p className="mt-1 text-sm text-red-400 font-inter">
                     {errors.password}

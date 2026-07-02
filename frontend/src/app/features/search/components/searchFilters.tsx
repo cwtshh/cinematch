@@ -77,7 +77,7 @@ export function SearchFilters({ filters, onChange, onSubmit, isLoading }: Search
               id="title"
               type="text"
               autoComplete="off"
-              placeholder="Ex: Homem-Aranha..."
+              placeholder="Ex: Matrix, Titanic..."
               value={filters.title}
               onChange={(e) => onChange({ ...filters, title: e.target.value })}
               onFocus={() => suggestions.length > 0 && setIsShowingSuggestions(true)}
