@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun --watch run src/main/server.ts",
     "start": "bun run src/main/server.ts",
+    "test": "bun test ../testes/backend/",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
@@ -15,7 +16,8 @@
     "db:reset:full": "bun run src/infra/database/scripts/reset-db.ts && bun run db:migrate && bun run db:seed:genres",
     "db:seed:genres": "bun run src/infra/database/scripts/seed-genres.ts",
     "db:import:movies": "bun run src/infra/database/scripts/import-movies.ts",
-    "posters:fill": "bun run src/infra/database/scripts/fill-movie-posters.ts"
+    "posters:fill": "bun run src/infra/database/scripts/fill-movie-posters.ts",
+    "db:translate-csv": "bun run src/infra/database/scripts/translate-movies-csv.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

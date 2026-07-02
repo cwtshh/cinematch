@@ -1,7 +1,7 @@
 import z from "zod";
 
 export const getMoviesToRateQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(30).optional().default(12),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
 });
 
 export const submitInitialMovieRatingsBodySchema = z.object({
@@ -12,7 +12,7 @@ export const submitInitialMovieRatingsBodySchema = z.object({
         rating: z.number().min(0).max(5),
       }),
     )
-    .min(1),
+    .min(0),
 });
 
 export type GetMoviesToRateQuery = z.infer<typeof getMoviesToRateQuerySchema>;

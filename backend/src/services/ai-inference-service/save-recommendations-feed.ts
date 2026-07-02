@@ -1,8 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/infra/database/client";
 import {
   recommendedFeed,
   recommendedFeedItem,
+  userMovieRating,
   userPreference,
   userPreferenceGenre,
   genre,
@@ -74,13 +75,39 @@ export async function saveRecommendationsFeed({
     }
 
     if (items.length > 0) {
+      const movieIds = items.map((item) => item.id);
+      const existingRatings =
+        movieIds.length > 0
+          ? await tx
+              .select({
+                movieId: userMovieRating.movieId,
+                rating: userMovieRating.rating,
+              })
+              .from(userMovieRating)
+              .where(
+                and(
+                  eq(userMovieRating.userId, userId),
+                  inArray(userMovieRating.movieId, movieIds),
+                ),
+              )
+          : [];
+
+      const ratingByMovieId = new Map(
+        existingRatings.map((r) => [r.movieId, Number(r.rating)]),
+      );
+
       await tx.insert(recommendedFeedItem).values(
-        items.map((item, index) => ({
-          feedId: feed.id,
-          movieId: item.id,
-          rank: index + 1,
-          status: "pending" as const,
-        })),
+        items.map((item, index) => {
+          const existingRating = ratingByMovieId.get(item.id);
+          return {
+            feedId: feed.id,
+            movieId: item.id,
+            rank: index + 1,
+            status: existingRating != null ? ("rated" as const) : ("pending" as const),
+            userRating: existingRating ?? null,
+            ratedAt: existingRating != null ? new Date() : null,
+          };
+        }),
       );
     }
 

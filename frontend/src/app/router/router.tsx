@@ -10,6 +10,7 @@ import { InitialMovieRatingPage } from "../features/on-board/routes/InitialMovie
 import { ForYou } from "../features/for-you/routes/ForYou";
 import { History } from "../features/history/routes/History";
 import { Search } from "../features/search/routes/Search";
+import { ProfilePage } from "../features/profile/routes/Profile";
 
 export const router = createBrowserRouter([
   {
@@ -47,7 +48,7 @@ export const router = createBrowserRouter([
               },
               {
                 path: "/profile",
-                element: <div>Profile</div>,
+                element: <ProfilePage />,
               },
             ],
           },

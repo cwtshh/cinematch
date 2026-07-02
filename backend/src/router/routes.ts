@@ -4,6 +4,7 @@ import { initialMovieRatingRoutes } from "@/modules/initial-movie-rating/initial
 import { onBoardingRoutes } from "@/modules/on-boarding/http/on-boarding.routes";
 import { recommendationsRoutes } from "@/modules/recommendations/recommendations.route";
 import { historyRoutes } from "@/modules/history/history.routes";
+import { moviesRoutes } from "@/modules/movies/movies.route";
 import type { FastifyPluginAsync } from "fastify";
 import {searchroutes} from "@/modules/search/search.routes";
 
@@ -17,4 +18,5 @@ export const appRoutes: FastifyPluginAsync = async (app) => {
   await app.register(recommendationsRoutes, { prefix: "/recommendations" });
   await app.register(historyRoutes, { prefix: "/history" });
   await app.register(searchroutes, { prefix: "/search" });
+  await app.register(moviesRoutes, { prefix: "/movies" });
 };

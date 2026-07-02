@@ -26,6 +26,7 @@ import {
 } from "./initial-movie-rating.schema";
 import { auth } from "@/infra/auth/auth";
 import { generateAndSaveRecommendationsForUser } from "@/services/ai-inference-service/generate-and-save-recommendations";
+import { searchFirstMovieByTitle } from "@/infra/integrations/tmdb/tmdb.service";
 
 export async function getMoviesToRateHandler(
   request: FastifyRequest,
@@ -81,11 +82,11 @@ export async function getMoviesToRateHandler(
     filters.push(inArray(movieGenre.genreId, preferredGenreIds));
   }
 
-  if (preference?.era === "old") {
+  if (preference?.era === "before-1980") {
     filters.push(sql`${movie.releaseYear} < 1980`);
   }
 
-  if (preference?.era === "80_90") {
+  if (preference?.era === "80s-90s") {
     filters.push(
       and(
         sql`${movie.releaseYear} >= 1980`,
@@ -94,7 +95,7 @@ export async function getMoviesToRateHandler(
     );
   }
 
-  if (preference?.era === "recent") {
+  if (preference?.era === "2000-plus") {
     filters.push(sql`${movie.releaseYear} >= 2000`);
   }
 
@@ -102,7 +103,7 @@ export async function getMoviesToRateHandler(
     filters.push(notInArray(movie.id, ratedMovieIds));
   }
 
-  const items = await db
+  const rows = await db
     .select({
       id: movie.id,
       title: movie.title,
@@ -115,6 +116,28 @@ export async function getMoviesToRateHandler(
     .groupBy(movie.id, movie.title, movie.releaseYear, movie.popularityBucket)
     .orderBy(sql`random()`)
     .limit(limit);
+
+  const TMDB_BATCH_SIZE = 3;
+  const items = [];
+  for (let i = 0; i < rows.length; i += TMDB_BATCH_SIZE) {
+    const batch = rows.slice(i, i + TMDB_BATCH_SIZE);
+    const enriched = await Promise.all(
+      batch.map(async (row) => {
+        let posterUrl: string | null = null;
+        try {
+          const tmdb = await searchFirstMovieByTitle({
+            title: row.title,
+            year: row.releaseYear ?? undefined,
+          });
+          posterUrl = tmdb?.posterUrl ?? null;
+        } catch {
+          request.log.warn(`TMDB falhou para "${row.title}", seguindo sem poster`);
+        }
+        return { ...row, posterUrl };
+      }),
+    );
+    items.push(...enriched);
+  }
 
   return reply.status(200).send({
     items,
@@ -152,48 +175,32 @@ export async function submitInitialMovieRatingsHandler(
     (item) => item.rating > 0,
   );
 
-  if (validRatings.length === 0) {
-    return reply.status(400).send({
-      message: "Avalie pelo menos um filme com nota maior que 0.",
-    });
+  if (validRatings.length > 0) {
+    await db
+      .insert(userMovieRating)
+      .values(
+        validRatings.map((item) => ({
+          userId,
+          movieId: item.movieId,
+          rating: item.rating,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [userMovieRating.userId, userMovieRating.movieId],
+        set: {
+          rating: sql`excluded.rating`,
+          updatedAt: sql`now()`,
+        },
+      });
   }
 
   await db
-    .insert(userMovieRating)
-    .values(
-      validRatings.map((item) => ({
-        userId,
-        movieId: item.movieId,
-        rating: item.rating,
-      })),
-    )
-    .onConflictDoUpdate({
-      target: [userMovieRating.userId, userMovieRating.movieId],
-      set: {
-        rating: sql`excluded.rating`,
-        updatedAt: sql`now()`,
-      },
-    });
-
-  const totalRatedResult = await db
-    .select({
-      count: count(),
+    .update(user)
+    .set({
+      hasCompletedInitialMovieRating: true,
+      updatedAt: new Date(),
     })
-    .from(userMovieRating)
-    .where(eq(userMovieRating.userId, userId));
-
-  const totalRated = totalRatedResult[0]?.count ?? 0;
-  const hasCompletedInitialMovieRating = totalRated >= 5;
-
-  if (hasCompletedInitialMovieRating) {
-    await db
-      .update(user)
-      .set({
-        hasCompletedInitialMovieRating: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(user.id, userId));
-  }
+    .where(eq(user.id, userId));
 
   let recommendations: Awaited<
     ReturnType<typeof generateAndSaveRecommendationsForUser>
@@ -201,24 +208,22 @@ export async function submitInitialMovieRatingsHandler(
   let recommendationsGenerated = false;
   let recommendationsError: string | null = null;
 
-  if (hasCompletedInitialMovieRating) {
-    try {
-      recommendations = await generateAndSaveRecommendationsForUser({
-        userId,
-        nRecommendations: 10,
-      });
-      recommendationsGenerated = true;
-    } catch (error) {
-      request.log.error(error);
-      recommendationsError =
-        "As avaliações foram salvas, mas não foi possível gerar recomendações agora.";
-    }
+  try {
+    recommendations = await generateAndSaveRecommendationsForUser({
+      userId,
+      nRecommendations: 20,
+    });
+    recommendationsGenerated = true;
+  } catch (error) {
+    request.log.error(error);
+    recommendationsError =
+      "As avaliações foram salvas, mas não foi possível gerar recomendações agora.";
   }
 
   return reply.status(200).send({
     savedCount: validRatings.length,
-    totalRated,
-    hasCompletedInitialMovieRating,
+    totalRated: validRatings.length,
+    hasCompletedInitialMovieRating: true,
     recommendationsGenerated,
     recommendationsError,
     recommendations,
