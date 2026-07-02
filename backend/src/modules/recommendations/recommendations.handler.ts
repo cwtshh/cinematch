@@ -312,7 +312,7 @@ export async function refreshRecommendationsHandler(
   try {
     const recommendations = await generateAndSaveRecommendationsForUser({
       userId,
-      nRecommendations: parsedBody.data?.limit ?? 10,
+      nRecommendations: parsedBody.data?.limit ?? 20,
     });
 
     return reply.status(200).send({
