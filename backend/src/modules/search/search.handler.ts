@@ -20,15 +20,16 @@ export async function searchMoviesHandler(
   const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
   const userId = session?.user.id;
 
-  const { title, year, genreText, page, limit } = parsed.data;
+  const { title, year, genreText, page, limit, mode } = parsed.data;
 
-  const { movies, hasMore } = await searchMoviesAction({
+  const { movies, hasMore, timings } = await searchMoviesAction({
     title,
     year,
     genreText,
     page,
     limit,
     userId,
+    mode,
   });
 
   return reply.send({
@@ -38,6 +39,7 @@ export async function searchMoviesHandler(
       limit,
       count: movies.length,
       hasMore,
+      timings,
     },
   });
 }

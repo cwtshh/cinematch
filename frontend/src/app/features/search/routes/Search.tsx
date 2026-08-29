@@ -4,7 +4,14 @@ import axios from "axios";
 import { SearchFilters } from "../components/searchFilters";
 import { MovieCard } from "../components/movieCard";
 import { getMovies } from "../api/getMovies";
-import type { SearchFiltersState, SearchMovieItem } from "../types/Search";
+import type {
+  SearchFiltersState,
+  SearchMovieItem,
+  SearchMode,
+  SearchTimings,
+} from "../types/Search";
+import { PerformancePanel } from "../components/performancePanel";
+import { AutocompleteBox } from "../components/autocompleteBox";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/axios";
 
@@ -91,15 +98,21 @@ export function Search() {
     genreText: "",
   });
 
+  // Estratégia de busca. "both" roda os dois caminhos e devolve os dois
+  // tempos, que é o modo usado na demonstração.
+  const [mode, setMode] = useState<SearchMode>("both");
+  const [timings, setTimings] = useState<SearchTimings | null>(null);
+
   async function runSearch(searchFilters: SearchFiltersState, page: number) {
     try {
       setIsLoading(true);
       setError(null);
       window.scrollTo({ top: 0, behavior: "smooth" });
 
-      const response = await getMovies(searchFilters, page);
+      const response = await getMovies(searchFilters, page, mode);
       setMovies(response.data);
       setHasMore(response.meta.hasMore);
+      setTimings(response.meta.timings ?? null);
       setCurrentPage(page);
       setHasSearched(true);
     } catch (err) {
@@ -158,6 +171,34 @@ export function Search() {
         onSubmit={handleSearch}
         isLoading={isLoading}
       />
+
+      <AutocompleteBox
+        value={filters.title}
+        onPick={(titulo) => setFilters((f) => ({ ...f, title: titulo }))}
+      />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+          Estratégia de busca:
+        </span>
+        {(["sql", "index", "both"] as SearchMode[]).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={cn(
+              "rounded-lg border px-3 py-1 text-xs transition",
+              m === mode
+                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                : "border-zinc-200 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800",
+            )}
+          >
+            {m === "sql" ? "ILIKE (antes)" : m === "index" ? "Índice (depois)" : "Comparar"}
+          </button>
+        ))}
+      </div>
+
+      {timings && !isLoading && <PerformancePanel timings={timings} />}
 
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">

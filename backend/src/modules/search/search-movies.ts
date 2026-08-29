@@ -1,7 +1,15 @@
 import { and, eq, ilike, inArray, or } from "drizzle-orm";
 import { db } from "@/infra/database/client";
-import { genre, movie, movieGenre, userMovieRating, userWatchlist } from "@/infra/database/drizzle/schema";
+import {
+  genre,
+  movie,
+  movieGenre,
+  userMovieRating,
+  userWatchlist,
+} from "@/infra/database/drizzle/schema";
 import { searchFirstMovieByTitleWithFallback } from "@/infra/integrations/tmdb/tmdb.service";
+import { obterIndice, obterIndicePrefixo } from "./shared/index-store";
+import { TAMANHO_GRAMA } from "./trigram/trigram-index";
 
 const GENRE_TRANSLATION_MAP: Record<string, string> = {
   acao: "action",
@@ -30,6 +38,40 @@ const GENRE_TRANSLATION_MAP: Record<string, string> = {
   "filme noir": "film_noir",
 };
 
+/**
+ * Estrategia de busca por titulo.
+ *
+ *   sql   - caminho original: dois ILIKE '%titulo%', que forcam Seq Scan
+ *   index - indice invertido de trigramas em memoria
+ *   both  - executa os dois, cronometra cada um e compara os resultados
+ *
+ * O modo `both` existe para a demonstracao e para o relatorio: ele
+ * permite mostrar antes e depois na mesma requisicao, sem reiniciar o
+ * servidor e sem depender de duas execucoes que poderiam pegar a
+ * maquina em estados diferentes.
+ */
+export type SearchMode = "sql" | "index" | "both";
+
+export type Timings = {
+  mode: SearchMode;
+  /** Tempo da fase de BUSCA por titulo, em ms. Nunca inclui o
+   * enriquecimento via TMDB, que faz chamada de rede e mascararia a
+   * diferenca entre os algoritmos. */
+  sqlMs: number | null;
+  indexMs: number | null;
+  sqlCount: number | null;
+  indexCount: number | null;
+  /** Verdadeiro quando os dois caminhos devolveram exatamente o mesmo
+   * conjunto de ids. Ver nota sobre acentos abaixo. */
+  identical: boolean | null;
+  /** Ids achados so pelo indice. Esperado ser > 0 em consultas
+   * acentuadas: o ILIKE e insensivel a caixa mas nao a acento, o indice
+   * e insensivel aos dois. */
+  onlyIndex: number | null;
+  onlySql: number | null;
+  usedPrefixIndex: boolean;
+};
+
 type SearchParams = {
   title?: string;
   year?: number;
@@ -37,7 +79,25 @@ type SearchParams = {
   page: number;
   limit: number;
   userId?: string;
+  mode?: SearchMode;
 };
+
+function condicaoTituloSql(title: string) {
+  return or(
+    ilike(movie.title, `%${title}%`),
+    ilike(movie.tmdbTitle, `%${title}%`),
+  );
+}
+
+/** Busca os ids pelo caminho SQL original, isolada para cronometragem. */
+async function idsPorSql(title: string): Promise<string[]> {
+  const linhas = await db
+    .select({ id: movie.id })
+    .from(movie)
+    .where(condicaoTituloSql(title));
+
+  return linhas.map((l) => l.id);
+}
 
 export async function searchMoviesAction({
   title,
@@ -46,17 +106,81 @@ export async function searchMoviesAction({
   page,
   limit,
   userId,
+  mode = "sql",
 }: SearchParams) {
   const offset = (page - 1) * limit;
   const conditions = [];
 
-  if (title && title.trim() !== "") {
-    conditions.push(
-      or(
-        ilike(movie.title, `%${title}%`),
-        ilike(movie.tmdbTitle, `%${title}%`),
-      ),
-    );
+  const timings: Timings = {
+    mode,
+    sqlMs: null,
+    indexMs: null,
+    sqlCount: null,
+    indexCount: null,
+    identical: null,
+    onlyIndex: null,
+    onlySql: null,
+    usedPrefixIndex: false,
+  };
+
+  const temTitulo = title !== undefined && title.trim() !== "";
+
+  if (temTitulo) {
+    const termo = title.trim();
+
+    if (mode === "sql") {
+      // Caminho original, inalterado: o filtro entra na consulta
+      // principal e o Postgres varre a tabela.
+      const t0 = performance.now();
+      conditions.push(condicaoTituloSql(termo));
+      timings.sqlMs = performance.now() - t0;
+    } else {
+      // Consulta com menos de 3 caracteres nao gera trigrama. Nesse
+      // caso a busca binaria por prefixo assume: e o unico caminho que
+      // responde a partir do primeiro caractere digitado.
+      let ids: string[];
+
+      if (termo.length < TAMANHO_GRAMA) {
+        const prefixo = await obterIndicePrefixo();
+        const t0 = performance.now();
+        ids = prefixo.buscarPorPrefixo(termo, 500).map((f) => f.id);
+        timings.indexMs = performance.now() - t0;
+        timings.usedPrefixIndex = true;
+      } else {
+        const indice = await obterIndice();
+        const t0 = performance.now();
+        ids = indice.buscar(termo);
+        timings.indexMs = performance.now() - t0;
+      }
+
+      timings.indexCount = ids.length;
+
+      if (mode === "both") {
+        const t1 = performance.now();
+        const idsSql = await idsPorSql(termo);
+        timings.sqlMs = performance.now() - t1;
+        timings.sqlCount = idsSql.length;
+
+        const setIndex = new Set(ids);
+        const setSql = new Set(idsSql);
+
+        let soSql = 0;
+        for (const id of setSql) if (!setIndex.has(id)) soSql++;
+
+        let soIndex = 0;
+        for (const id of setIndex) if (!setSql.has(id)) soIndex++;
+
+        timings.onlySql = soSql;
+        timings.onlyIndex = soIndex;
+        timings.identical = soSql === 0 && soIndex === 0;
+      }
+
+      if (ids.length === 0) {
+        return { movies: [], hasMore: false, timings };
+      }
+
+      conditions.push(inArray(movie.id, ids));
+    }
   }
 
   if (year) {
@@ -67,7 +191,7 @@ export async function searchMoviesAction({
     const normalizedInput = genreText
       .toLowerCase()
       .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "");
+      .replace(/[\u0300-\u036f]/g, "");
 
     const englishTerm =
       GENRE_TRANSLATION_MAP[normalizedInput] || normalizedInput;
@@ -82,7 +206,7 @@ export async function searchMoviesAction({
   }
 
   if (conditions.length === 0) {
-    return { movies: [], hasMore: false };
+    return { movies: [], hasMore: false, timings };
   }
 
   const rawResults = await db
@@ -113,7 +237,6 @@ export async function searchMoviesAction({
 
   const movieIds = results.map((r) => r.id);
 
-  // busca avaliações e watchlist do usuário em paralelo
   const [ratingRows, watchlistRows, genreRelations] = await Promise.all([
     userId && movieIds.length > 0
       ? db
@@ -152,6 +275,10 @@ export async function searchMoviesAction({
     genresByMovieId.set(rel.movieId, list);
   }
 
+  // Enriquecimento sob demanda via TMDB. Fica DEPOIS da cronometragem
+  // de proposito: e uma chamada de rede por filme sem cache, e incluir
+  // isso na medicao mascararia completamente a diferenca entre os
+  // algoritmos de busca.
   const enrichedResults = await Promise.all(
     results.map(async (item) => {
       let tmdbData = {
@@ -191,5 +318,5 @@ export async function searchMoviesAction({
     }),
   );
 
-  return { movies: enrichedResults, hasMore };
+  return { movies: enrichedResults, hasMore, timings };
 }
